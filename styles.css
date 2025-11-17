@@ -625,16 +625,16 @@ button:hover {
   background: #fff7ed;
   font-weight: 600;
   text-align: center;
-  width: 160px;
+  white-space: nowrap;
 }
 
 .export-sheet__table td:nth-child(2) {
-  width: 240px;
+  min-width: 220px;
 }
 
 .export-sheet__table td:nth-child(3),
 .export-sheet__table td:nth-child(4) {
-  width: calc((100% - 400px) / 2);
+  min-width: 0;
 }
 
 .export-sheet__table tr:nth-child(even) td {

@@ -473,6 +473,7 @@ function renderAdminTable() {
           button.dataset.date = item.date;
           button.dataset.slot = slotKey;
           button.dataset.name = item.name;
+          button.dataset.label = item.label;
           button.setAttribute("aria-pressed", "false");
           fragment.appendChild(button);
         });
@@ -596,40 +597,60 @@ function collectConfirmedShiftData() {
     adminMonthInput.value || monthPicker.value
   );
   const label = formatMonthLabel(year, month);
-  const rows = Array.from(
+  const tableRows = Array.from(
     adminTableWrapper ? adminTableWrapper.querySelectorAll("tbody tr") : []
-  )
-    .map((row) => {
-      const dateKey = row.dataset.dateKey;
-      if (!dateKey) return null;
-      const displayDate =
-        row.dataset.displayDate || formatDisplayDateFromKey(dateKey);
-      const noteParts = [];
-      if (row.dataset.holidayName) {
-        noteParts.push(`${row.dataset.holidayName}（祝日）`);
-      }
-      if (row.dataset.specialNote) {
-        noteParts.push(row.dataset.specialNote);
-      }
-      const slots = { morning: [], afternoon: [] };
-      row
-        .querySelectorAll(".admin-slot-entry.is-confirmed")
-        .forEach((button) => {
-          const slotKey = button.dataset.slot;
-          const name = button.dataset.name;
-          if (!slotKey || !name || !slots[slotKey]) return;
-          slots[slotKey].push(name);
-        });
-      return {
-        dateKey,
-        displayDate,
-        notes: noteParts.join(" / "),
-        isHoliday: Boolean(row.dataset.holidayName),
-        isSpecial: Boolean(row.dataset.specialNote),
-        slots,
-      };
-    })
-    .filter(Boolean);
+  );
+  const rowMap = new Map();
+
+  tableRows.forEach((row) => {
+    const dateKey = row.dataset.dateKey;
+    if (!dateKey) return;
+    const baseRow = {
+      dateKey,
+      displayDate: row.dataset.displayDate || formatDisplayDateFromKey(dateKey),
+      notes: row.dataset.specialNote || "",
+      slots: { morning: [], afternoon: [] },
+      holidayName: row.dataset.holidayName || "",
+    };
+
+    row
+      .querySelectorAll(".admin-slot-entry.is-confirmed")
+      .forEach((button) => {
+        const slotKey = button.dataset.slot;
+        const labelText = button.dataset.label || button.textContent.trim();
+        if (!slotKey || !labelText || !baseRow.slots[slotKey]) return;
+        baseRow.slots[slotKey].push(labelText);
+      });
+
+    rowMap.set(dateKey, baseRow);
+  });
+
+  const monthDates = getAllMonthDates(year, month);
+  const rows = monthDates.map((date) => {
+    const dateKey = formatDateKey(date);
+    const existing = rowMap.get(dateKey);
+    const holidayName = getHolidayName(dateKey) || existing?.holidayName || "";
+    const specialNote = existing?.notes || specialDayMap[dateKey] || "";
+    const noteParts = [];
+    if (holidayName) {
+      noteParts.push(`${holidayName}（祝日）`);
+    }
+    if (specialNote) {
+      noteParts.push(specialNote);
+    }
+    return {
+      dateKey,
+      displayDate: existing?.displayDate || formatDisplayDate(date),
+      notes: noteParts.join(" / "),
+      isHoliday: Boolean(holidayName),
+      isWeekend: isWeekendDate(date),
+      slots: {
+        morning: existing ? [...existing.slots.morning] : [],
+        afternoon: existing ? [...existing.slots.afternoon] : [],
+      },
+    };
+  });
+
   return {
     rows,
     label,
@@ -668,10 +689,8 @@ function buildExportSheet(exportData) {
   const tbody = document.createElement("tbody");
   exportData.rows.forEach((row) => {
     const tr = document.createElement("tr");
-    if (row.isHoliday) {
+    if (row.isHoliday || row.isWeekend) {
       tr.classList.add("is-holiday");
-    } else if (row.isSpecial) {
-      tr.classList.add("special-day");
     }
     const dateCell = document.createElement("td");
     dateCell.className = "export-sheet__date";
@@ -697,19 +716,15 @@ function buildExportSheet(exportData) {
 
 function fillSlotCell(cell, names) {
   if (!names.length) {
-    cell.innerHTML = "&nbsp;";
+    cell.textContent = "";
     return;
   }
-  names.forEach((name) => {
-    const div = document.createElement("div");
-    div.textContent = name;
-    cell.appendChild(div);
-  });
+  cell.textContent = names.join("・");
 }
 
 function formatEntryLabel(entry, includeTime = false) {
   if (includeTime && entry.start && entry.end) {
-    return `${entry.name} (${entry.start}〜${entry.end})`;
+    return `${entry.name} ${entry.start}〜${entry.end}`;
   }
   return entry.name;
 }
@@ -746,6 +761,21 @@ function getWeekdays(year, month) {
     date.setDate(date.getDate() + 1);
   }
   return dates;
+}
+
+function getAllMonthDates(year, month) {
+  const dates = [];
+  const date = new Date(year, month, 1);
+  while (date.getMonth() === month) {
+    dates.push(new Date(date));
+    date.setDate(date.getDate() + 1);
+  }
+  return dates;
+}
+
+function isWeekendDate(date) {
+  const day = date.getDay();
+  return day === 0 || day === 6;
 }
 
 function formatMonthInput(date) {
