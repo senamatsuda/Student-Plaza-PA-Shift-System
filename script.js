@@ -1,25 +1,3 @@
-const DEFAULT_NAMES = [
-  "森",
-  "松田",
-  "劉",
-  "長谷川",
-  "中野",
-  "片山",
-  "黄",
-  "ショーン",
-  "繆",
-  "張",
-  "王",
-  "李",
-  "鄭",
-];
-const DEFAULT_SPECIAL_DAYS = [
-  { date: "2023-11-02", note: "在留期間更新〆切" },
-  { date: "2023-11-10", note: "授業振替日" },
-  { date: "2023-11-20", note: "期末試験" },
-  { date: "2023-11-23", note: "勤労感謝の日(休館)" },
-  { date: "2023-11-27", note: "補講日" },
-];
 const SHIFT_TEMPLATES = {
   morning: { label: "午前", start: "10:00", end: "13:00" },
   afternoon: { label: "午後", start: "13:00", end: "17:00" },
@@ -29,9 +7,18 @@ const SHIFT_TEMPLATES = {
 const MORNING_RANGE = { start: "10:00", end: "13:00" };
 const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
-const SPECIAL_DAY_STORAGE_KEY = "pa-special-days";
-const NAME_STORAGE_KEY = "pa-name-list";
-const SUBMISSION_STORAGE_KEY = "pa-shifts";
+const API_DEFAULT_BASE_URL = "http://localhost:3001";
+const API_DEFAULT_ERROR_MESSAGE =
+  "サーバーとの通信に失敗しました。時間をおいて再度お試しください。";
+const apiBaseUrl =
+  getMetaContent("pa-shift-api-base-url") ||
+  window.PA_SHIFT_API_BASE_URL ||
+  API_DEFAULT_BASE_URL;
+const apiKey =
+  getMetaContent("pa-shift-api-key") || window.PA_SHIFT_API_KEY || "dev-api-key";
+const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, "");
+
+let submissionEntries = [];
 let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
@@ -65,10 +52,59 @@ const paNameList = document.getElementById("paNameList");
 
 const template = document.getElementById("shiftRowTemplate");
 
-init();
+function getMetaContent(name) {
+  const meta = document.querySelector(`meta[name="${name}"]`);
+  return meta?.content?.trim() || "";
+}
+
+function buildApiUrl(path) {
+  if (!path.startsWith("/")) {
+    return `${normalizedApiBaseUrl}/${path}`;
+  }
+  return `${normalizedApiBaseUrl}${path}`;
+}
+
+async function apiRequest(path, options = {}) {
+  const headers = {
+    "x-api-key": apiKey,
+    ...(options.headers || {}),
+  };
+  const hasBody = options.body && !(options.body instanceof FormData);
+  if (hasBody && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(buildApiUrl(path), {
+    ...options,
+    headers,
+  });
+  if (!response.ok) {
+    let message = `${API_DEFAULT_ERROR_MESSAGE} (status: ${response.status})`;
+    try {
+      const data = await response.json();
+      if (data?.error) {
+        message = data.error;
+      }
+    } catch (error) {
+      // ignore JSON parse errors
+    }
+    throw new Error(message);
+  }
+  if (response.status === 204) {
+    return null;
+  }
+  return response.json();
+}
+
+init().catch((error) => {
+  console.error("Failed to initialize application", error);
+  if (formStatus) {
+    formStatus.textContent = API_DEFAULT_ERROR_MESSAGE;
+    formStatus.style.color = "#b42318";
+  }
+});
 
 async function init() {
-  initializePaNames();
+  await initializePaNames();
   const now = new Date();
   const currentMonthValue = formatMonthInput(now);
   monthPicker.value = currentMonthValue;
@@ -76,12 +112,15 @@ async function init() {
   setupTabs();
   setupAdminSubtabs();
   await loadHolidayData();
-  initializeSpecialDays();
+  await initializeSpecialDays();
+  await refreshSubmissions();
   renderCalendar();
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
   studentNameSelect.addEventListener("change", renderCalendar);
-  adminRefreshButton.addEventListener("click", renderAdminTable);
+  if (adminRefreshButton) {
+    adminRefreshButton.addEventListener("click", handleAdminRefresh);
+  }
   adminMonthInput.addEventListener("change", renderAdminTable);
   adminNameFilter.addEventListener("change", renderAdminTable);
   if (adminTableWrapper) {
@@ -108,31 +147,21 @@ async function init() {
   renderAdminTable();
 }
 
-function initializePaNames() {
-  paNames = loadPaNames();
-  if (!paNames.length) {
-    paNames = [...DEFAULT_NAMES];
-    savePaNames();
-  }
+async function initializePaNames() {
+  await refreshPaNames();
   populateNameSelects();
   renderPaNameList();
 }
 
-function loadPaNames() {
+async function refreshPaNames() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(NAME_STORAGE_KEY) ?? "[]");
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((name) => String(name).trim())
-      .filter((name) => name.length > 0);
+    const response = await apiRequest("/names", { method: "GET" });
+    paNames = Array.isArray(response) ? response : [];
   } catch (error) {
-    console.warn("Failed to load names", error);
-    return [];
+    console.error("Failed to load names", error);
+    paNames = [];
+    updatePaNameStatus(error.message, "#b42318");
   }
-}
-
-function savePaNames() {
-  localStorage.setItem(NAME_STORAGE_KEY, JSON.stringify(paNames));
 }
 
 function populateNameSelects() {
@@ -141,14 +170,23 @@ function populateNameSelects() {
     Array.from(adminNameFilter.selectedOptions).map((option) => option.value)
   );
 
-  studentNameSelect.innerHTML = paNames
+  if (!paNames.length) {
+    studentNameSelect.innerHTML =
+      '<option value="" selected disabled>PAメンバーが登録されていません</option>';
+    adminNameFilter.innerHTML = "";
+    return;
+  }
+
+  const nameList = paNames.map((entry) => entry.name);
+
+  studentNameSelect.innerHTML = nameList
     .map((name) => `<option value="${name}">${name}</option>`)
     .join("");
-  if (paNames.includes(previousStudent)) {
+  if (nameList.includes(previousStudent)) {
     studentNameSelect.value = previousStudent;
   }
 
-  adminNameFilter.innerHTML = paNames
+  adminNameFilter.innerHTML = nameList
     .map((name) => `<option value="${name}">${name}</option>`)
     .join("");
   const shouldSelectAll = previousAdminSelection.size === 0;
@@ -175,7 +213,13 @@ function renderCalendar() {
   const weekdays = getWeekdays(year, month);
   calendarContainer.innerHTML = "";
 
-  const savedEntries = loadSubmissions().filter(
+  if (!selectedName) {
+    calendarContainer.innerHTML =
+      '<p class="calendar-empty">PAメンバーを登録してください</p>';
+    return;
+  }
+
+  const savedEntries = submissionEntries.filter(
     (entry) => entry.name === selectedName && entry.monthKey === monthKey
   );
   const savedEntryMap = savedEntries.reduce((acc, entry) => {
@@ -288,7 +332,7 @@ function generateTimeSlots(startHour, endHour, stepMinutes) {
   return slots;
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   event.preventDefault();
   const name = studentNameSelect.value;
   let entries;
@@ -306,16 +350,24 @@ function handleSubmit(event) {
     return;
   }
 
-  const existing = loadSubmissions();
-  const monthKey = entries[0].monthKey;
-  const filtered = existing.filter(
-    (entry) => !(entry.name === name && entry.monthKey === monthKey)
-  );
-  const nextData = [...filtered, ...entries];
-  saveSubmissions(nextData);
-  formStatus.textContent = "提出しました";
-  formStatus.style.color = "#0f7b6c";
-  renderAdminTable();
+  const monthKey = entries[0]?.monthKey;
+  try {
+    await apiRequest("/submissions", {
+      method: "POST",
+      body: JSON.stringify({ name, monthKey, entries }),
+    });
+    formStatus.textContent = "提出しました";
+    formStatus.style.color = "#0f7b6c";
+    await refreshSubmissions();
+    renderCalendar();
+    renderAdminTable();
+  } catch (error) {
+    console.error("Failed to submit shifts", error);
+    const message = error?.message || API_DEFAULT_ERROR_MESSAGE;
+    formStatus.textContent = message;
+    formStatus.style.color = "#b42318";
+    window.alert(message);
+  }
 }
 
 function collectEntries() {
@@ -374,17 +426,18 @@ function collectEntries() {
   return entries;
 }
 
-function loadSubmissions() {
+async function refreshSubmissions() {
   try {
-    return JSON.parse(localStorage.getItem(SUBMISSION_STORAGE_KEY) ?? "[]");
+    const response = await apiRequest("/submissions", { method: "GET" });
+    submissionEntries = Array.isArray(response) ? response : [];
   } catch (error) {
-    console.error("Failed to parse submissions", error);
-    return [];
+    console.error("Failed to load submissions", error);
+    submissionEntries = [];
+    if (formStatus) {
+      formStatus.textContent = error.message;
+      formStatus.style.color = "#b42318";
+    }
   }
-}
-
-function saveSubmissions(data) {
-  localStorage.setItem(SUBMISSION_STORAGE_KEY, JSON.stringify(data));
 }
 
 function renderAdminTable() {
@@ -396,7 +449,7 @@ function renderAdminTable() {
     (option) => option.value
   );
   const weekdays = getWeekdays(year, month);
-  const submissions = loadSubmissions().filter(
+  const submissions = submissionEntries.filter(
     (entry) => entry.monthKey === monthKey && (filters.length === 0 || filters.includes(entry.name))
   );
 
@@ -489,6 +542,24 @@ function renderAdminTable() {
 
   table.appendChild(tbody);
   adminTableWrapper.appendChild(table);
+}
+
+async function handleAdminRefresh() {
+  if (!adminRefreshButton) {
+    await refreshSubmissions();
+    renderAdminTable();
+    return;
+  }
+  const originalLabel = adminRefreshButton.textContent;
+  adminRefreshButton.disabled = true;
+  adminRefreshButton.textContent = "更新中...";
+  try {
+    await refreshSubmissions();
+    renderAdminTable();
+  } finally {
+    adminRefreshButton.disabled = false;
+    adminRefreshButton.textContent = originalLabel;
+  }
 }
 
 function groupByDate(entries) {
@@ -887,38 +958,21 @@ function setActiveAdminSubtab(targetId, activeButton) {
   });
 }
 
-function initializeSpecialDays() {
-  specialDayEntries = loadSpecialDayEntries();
-  if (!specialDayEntries.length) {
-    specialDayEntries = [...DEFAULT_SPECIAL_DAYS];
-    saveSpecialDayEntries();
-  }
-  rebuildSpecialDayMap();
+async function initializeSpecialDays() {
+  await refreshSpecialDays();
   renderSpecialDayList();
 }
 
-function loadSpecialDayEntries() {
+async function refreshSpecialDays() {
   try {
-    const parsed = JSON.parse(
-      localStorage.getItem(SPECIAL_DAY_STORAGE_KEY) ?? "[]"
-    );
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((entry) => entry?.date && entry?.note)
-      .map((entry) => ({ date: entry.date, note: entry.note }));
+    const response = await apiRequest("/special-days", { method: "GET" });
+    specialDayEntries = Array.isArray(response) ? response : [];
   } catch (error) {
-    console.warn("Failed to load special days", error);
-    return [];
+    console.error("Failed to load special days", error);
+    specialDayEntries = [];
+    updateSpecialDayStatus(error.message, "#b42318");
   }
-}
-
-function saveSpecialDayEntries() {
-  localStorage.setItem(
-    SPECIAL_DAY_STORAGE_KEY,
-    JSON.stringify(specialDayEntries)
-  );
+  rebuildSpecialDayMap();
 }
 
 function rebuildSpecialDayMap() {
@@ -956,6 +1010,7 @@ function renderSpecialDayList() {
     removeButton.className = "special-day-remove";
     removeButton.dataset.action = "remove";
     removeButton.dataset.date = entry.date;
+    removeButton.dataset.id = String(entry.id);
     removeButton.textContent = "削除";
 
     item.append(meta, removeButton);
@@ -964,7 +1019,7 @@ function renderSpecialDayList() {
   specialDayList.appendChild(fragment);
 }
 
-function handleSpecialDaySubmit(event) {
+async function handleSpecialDaySubmit(event) {
   event.preventDefault();
   const date = specialDayDateInput.value;
   const note = specialDayNoteInput.value.trim();
@@ -972,35 +1027,47 @@ function handleSpecialDaySubmit(event) {
     updateSpecialDayStatus("日付とメモを入力してください", "#b42318");
     return;
   }
-  const existingIndex = specialDayEntries.findIndex(
-    (entry) => entry.date === date
-  );
-  const payload = { date, note };
-  if (existingIndex >= 0) {
-    specialDayEntries[existingIndex] = payload;
-  } else {
-    specialDayEntries.push(payload);
+  const existing = specialDayEntries.find((entry) => entry.date === date);
+  try {
+    if (existing) {
+      await apiRequest(`/special-days/${existing.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ date, note }),
+      });
+    } else {
+      await apiRequest("/special-days", {
+        method: "POST",
+        body: JSON.stringify({ date, note }),
+      });
+    }
+    await refreshSpecialDays();
+    renderSpecialDayList();
+    renderCalendar();
+    renderAdminTable();
+    updateSpecialDayStatus(existing ? "更新しました" : "追加しました");
+    specialDayForm.reset();
+  } catch (error) {
+    console.error("Failed to save special day", error);
+    updateSpecialDayStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
   }
-  saveSpecialDayEntries();
-  rebuildSpecialDayMap();
-  renderSpecialDayList();
-  renderCalendar();
-  renderAdminTable();
-  updateSpecialDayStatus(existingIndex >= 0 ? "更新しました" : "追加しました");
-  specialDayForm.reset();
 }
 
-function handleSpecialDayListClick(event) {
+async function handleSpecialDayListClick(event) {
   const button = event.target.closest("[data-action='remove']");
   if (!button) return;
-  const { date } = button.dataset;
-  specialDayEntries = specialDayEntries.filter((entry) => entry.date !== date);
-  saveSpecialDayEntries();
-  rebuildSpecialDayMap();
-  renderSpecialDayList();
-  renderCalendar();
-  renderAdminTable();
-  updateSpecialDayStatus("削除しました");
+  const { id } = button.dataset;
+  if (!id) return;
+  try {
+    await apiRequest(`/special-days/${id}`, { method: "DELETE" });
+    await refreshSpecialDays();
+    renderSpecialDayList();
+    renderCalendar();
+    renderAdminTable();
+    updateSpecialDayStatus("削除しました");
+  } catch (error) {
+    console.error("Failed to remove special day", error);
+    updateSpecialDayStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+  }
 }
 
 function updateSpecialDayStatus(message, color = "#0f7b6c") {
@@ -1020,15 +1087,15 @@ function renderPaNameList() {
     return;
   }
   const fragment = document.createDocumentFragment();
-  paNames.forEach((name, index) => {
+  paNames.forEach((entry) => {
     const item = document.createElement("li");
     item.className = "pa-name-item";
-    item.dataset.index = String(index);
+    item.dataset.id = String(entry.id);
 
     const input = document.createElement("input");
     input.type = "text";
     input.className = "pa-name-field";
-    input.value = name;
+    input.value = entry.name;
 
     const actions = document.createElement("div");
     actions.className = "pa-name-actions";
@@ -1036,13 +1103,13 @@ function renderPaNameList() {
     const saveButton = document.createElement("button");
     saveButton.type = "button";
     saveButton.dataset.paNameAction = "save";
-    saveButton.dataset.index = String(index);
+    saveButton.dataset.id = String(entry.id);
     saveButton.textContent = "保存";
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.dataset.paNameAction = "remove";
-    removeButton.dataset.index = String(index);
+    removeButton.dataset.id = String(entry.id);
     removeButton.textContent = "削除";
 
     actions.append(saveButton, removeButton);
@@ -1052,7 +1119,7 @@ function renderPaNameList() {
   paNameList.appendChild(fragment);
 }
 
-function handlePaNameSubmit(event) {
+async function handlePaNameSubmit(event) {
   event.preventDefault();
   if (!paNameInput) return;
   const newName = paNameInput.value.trim();
@@ -1060,59 +1127,83 @@ function handlePaNameSubmit(event) {
     updatePaNameStatus("名前を入力してください", "#b42318");
     return;
   }
-  if (paNames.includes(newName)) {
+  if (paNames.some((entry) => entry.name === newName)) {
     updatePaNameStatus("同じ名前が既にあります", "#b42318");
     return;
   }
-  paNames.push(newName);
-  savePaNames();
-  populateNameSelects();
-  renderPaNameList();
-  updatePaNameStatus("追加しました");
-  paNameForm.reset();
-  renderAdminTable();
+  try {
+    await apiRequest("/names", {
+      method: "POST",
+      body: JSON.stringify({ name: newName }),
+    });
+    await refreshPaNames();
+    populateNameSelects();
+    renderPaNameList();
+    updatePaNameStatus("追加しました");
+    paNameForm.reset();
+    renderCalendar();
+    renderAdminTable();
+  } catch (error) {
+    console.error("Failed to add PA name", error);
+    updatePaNameStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+  }
 }
 
-function handlePaNameListClick(event) {
+async function handlePaNameListClick(event) {
   const actionButton = event.target.closest("[data-pa-name-action]");
   if (!actionButton) return;
-  const index = Number(actionButton.dataset.index);
-  if (Number.isNaN(index)) return;
+  const id = Number(actionButton.dataset.id);
+  if (Number.isNaN(id)) return;
   const action = actionButton.dataset.paNameAction;
   const item = actionButton.closest(".pa-name-item");
   if (!item) return;
   const input = item.querySelector(".pa-name-field");
   if (!input) return;
-
-  if (action === "remove") {
-    paNames.splice(index, 1);
-    savePaNames();
-    populateNameSelects();
-    renderPaNameList();
-    updatePaNameStatus("削除しました");
-    renderAdminTable();
+  const target = paNames.find((entry) => entry.id === id);
+  if (!target) {
+    updatePaNameStatus("選択されたPAが見つかりません", "#b42318");
     return;
   }
 
-  if (action === "save") {
-    const updated = input.value.trim();
-    if (!updated) {
-      updatePaNameStatus("名前を入力してください", "#b42318");
+  try {
+    if (action === "remove") {
+      await apiRequest(`/names/${id}`, { method: "DELETE" });
+      await refreshPaNames();
+      populateNameSelects();
+      renderPaNameList();
+      updatePaNameStatus("削除しました");
+      renderCalendar();
+      renderAdminTable();
       return;
     }
-    const isDuplicate = paNames.some(
-      (name, idx) => idx !== index && name === updated
-    );
-    if (isDuplicate) {
-      updatePaNameStatus("同じ名前が既にあります", "#b42318");
-      return;
+
+    if (action === "save") {
+      const updated = input.value.trim();
+      if (!updated) {
+        updatePaNameStatus("名前を入力してください", "#b42318");
+        return;
+      }
+      const isDuplicate = paNames.some(
+        (entry) => entry.id !== id && entry.name === updated
+      );
+      if (isDuplicate) {
+        updatePaNameStatus("同じ名前が既にあります", "#b42318");
+        return;
+      }
+      await apiRequest(`/names/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ name: updated }),
+      });
+      await refreshPaNames();
+      populateNameSelects();
+      renderPaNameList();
+      updatePaNameStatus("更新しました");
+      renderCalendar();
+      renderAdminTable();
     }
-    paNames[index] = updated;
-    savePaNames();
-    populateNameSelects();
-    renderPaNameList();
-    updatePaNameStatus("更新しました");
-    renderAdminTable();
+  } catch (error) {
+    console.error("Failed to update PA name", error);
+    updatePaNameStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
   }
 }
 
