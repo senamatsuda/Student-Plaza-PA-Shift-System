@@ -9,10 +9,30 @@ dotenv.config();
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.API_KEY || "dev-api-key";
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
+function normalizeOriginValue(value) {
+  if (!value) {
+    return "";
+  }
+  if (value === "*") {
+    return "*";
+  }
+  try {
+    const parsed = new URL(value);
+    return parsed.origin;
+  } catch (error) {
+    return value.replace(/\/$/, "");
+  }
+}
+
+const rawAllowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
+const hasAllowAllOrigins = rawAllowedOrigins.includes("*");
+const allowedOrigins = rawAllowedOrigins
+  .map(normalizeOriginValue)
+  .filter((origin) => origin && origin !== "*")
+  .filter((origin, index, self) => self.indexOf(origin) === index);
 
 const dbFile = path.join(__dirname, "data.sqlite");
 const db = new sqlite3.Database(dbFile);
@@ -24,7 +44,12 @@ app.use(
         callback(null, true);
         return;
       }
-      if (!allowedOrigins.length || allowedOrigins.includes(origin)) {
+      if (hasAllowAllOrigins || !allowedOrigins.length) {
+        callback(null, true);
+        return;
+      }
+      const normalizedOrigin = normalizeOriginValue(origin);
+      if (allowedOrigins.includes(normalizedOrigin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));
