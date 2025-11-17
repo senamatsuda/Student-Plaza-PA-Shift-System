@@ -1,12 +1,11 @@
 const NAMES = ["森", "鄭", "長谷川", "片山", "劉", "黄", "中野", "ショーン", "王", "李", "松岡", "郭"];
-const SPECIAL_DAYS = {
-  // YYYY-MM-DD: note
-  "2023-11-02": "在留期間更新〆切",
-  "2023-11-10": "授業振替日",
-  "2023-11-20": "期末試験",
-  "2023-11-23": "勤労感謝の日(休館)",
-  "2023-11-27": "補講日",
-};
+const DEFAULT_SPECIAL_DAYS = [
+  { date: "2023-11-02", note: "在留期間更新〆切" },
+  { date: "2023-11-10", note: "授業振替日" },
+  { date: "2023-11-20", note: "期末試験" },
+  { date: "2023-11-23", note: "勤労感謝の日(休館)" },
+  { date: "2023-11-27", note: "補講日" },
+];
 const SHIFT_TEMPLATES = {
   morning: { label: "午前", start: "10:00", end: "13:00" },
   afternoon: { label: "午後", start: "13:00", end: "17:00" },
@@ -14,7 +13,10 @@ const SHIFT_TEMPLATES = {
   unavailable: { label: "勤務不可", start: null, end: null },
 };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
+const SPECIAL_DAY_STORAGE_KEY = "pa-special-days";
 let holidayMap = {};
+let specialDayEntries = [];
+let specialDayMap = {};
 
 const monthPicker = document.getElementById("monthPicker");
 const calendarContainer = document.getElementById("calendar");
@@ -25,6 +27,13 @@ const adminTableWrapper = document.getElementById("adminTableWrapper");
 const adminRefreshButton = document.getElementById("refreshAdmin");
 const adminNameFilter = document.getElementById("adminNameFilter");
 const adminMonthInput = document.getElementById("adminMonth");
+const tabButtons = document.querySelectorAll(".tab-button");
+const tabPanels = document.querySelectorAll(".tab-panel");
+const specialDayForm = document.getElementById("specialDayForm");
+const specialDayDateInput = document.getElementById("specialDayDate");
+const specialDayNoteInput = document.getElementById("specialDayNote");
+const specialDayList = document.getElementById("specialDayList");
+const specialDayStatus = document.getElementById("specialDayStatus");
 
 const template = document.getElementById("shiftRowTemplate");
 
@@ -36,13 +45,21 @@ async function init() {
   const currentMonthValue = formatMonthInput(now);
   monthPicker.value = currentMonthValue;
   adminMonthInput.value = currentMonthValue;
+  setupTabs();
   await loadHolidayData();
+  initializeSpecialDays();
   renderCalendar();
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
   adminRefreshButton.addEventListener("click", renderAdminTable);
   adminMonthInput.addEventListener("change", renderAdminTable);
   adminNameFilter.addEventListener("change", renderAdminTable);
+  if (specialDayForm) {
+    specialDayForm.addEventListener("submit", handleSpecialDaySubmit);
+  }
+  if (specialDayList) {
+    specialDayList.addEventListener("click", handleSpecialDayListClick);
+  }
   renderAdminTable();
 }
 
@@ -76,7 +93,7 @@ function renderCalendar() {
 
     dayLabel.textContent = formatDisplayDate(date);
     const holidayName = getHolidayName(dateKey);
-    const specialNote = SPECIAL_DAYS[dateKey];
+    const specialNote = specialDayMap[dateKey];
     const noteTexts = [];
     if (holidayName) {
       noteTexts.push(`${holidayName}（祝日）`);
@@ -272,7 +289,7 @@ function renderAdminTable() {
     const dateKey = formatDateKey(date);
     const row = document.createElement("tr");
     const holidayName = getHolidayName(dateKey);
-    const specialNote = SPECIAL_DAYS[dateKey];
+    const specialNote = specialDayMap[dateKey];
     if (holidayName) {
       row.classList.add("is-holiday");
     }
@@ -396,6 +413,154 @@ async function loadHolidayData() {
     holidayMap = {};
   }
   return holidayMap;
+}
+
+function setupTabs() {
+  if (!tabButtons.length) return;
+  const defaultActive = document.querySelector(".tab-button.is-active");
+  if (defaultActive) {
+    setActiveTab(defaultActive.dataset.tabTarget, defaultActive);
+  }
+  tabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveTab(button.dataset.tabTarget, button);
+    });
+  });
+}
+
+function setActiveTab(targetId, activeButton) {
+  tabButtons.forEach((button) => {
+    const isActive = button === activeButton;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  tabPanels.forEach((panel) => {
+    const isActive = panel.id === targetId;
+    panel.classList.toggle("is-active", isActive);
+    panel.setAttribute("aria-hidden", String(!isActive));
+  });
+}
+
+function initializeSpecialDays() {
+  specialDayEntries = loadSpecialDayEntries();
+  if (!specialDayEntries.length) {
+    specialDayEntries = [...DEFAULT_SPECIAL_DAYS];
+    saveSpecialDayEntries();
+  }
+  rebuildSpecialDayMap();
+  renderSpecialDayList();
+}
+
+function loadSpecialDayEntries() {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(SPECIAL_DAY_STORAGE_KEY) ?? "[]"
+    );
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .filter((entry) => entry?.date && entry?.note)
+      .map((entry) => ({ date: entry.date, note: entry.note }));
+  } catch (error) {
+    console.warn("Failed to load special days", error);
+    return [];
+  }
+}
+
+function saveSpecialDayEntries() {
+  localStorage.setItem(
+    SPECIAL_DAY_STORAGE_KEY,
+    JSON.stringify(specialDayEntries)
+  );
+}
+
+function rebuildSpecialDayMap() {
+  specialDayMap = specialDayEntries.reduce((acc, entry) => {
+    acc[entry.date] = entry.note;
+    return acc;
+  }, {});
+}
+
+function renderSpecialDayList() {
+  if (!specialDayList) return;
+  if (!specialDayEntries.length) {
+    specialDayList.innerHTML =
+      '<li class="special-day-empty">登録された特別日はありません</li>';
+    return;
+  }
+  const sorted = [...specialDayEntries].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
+  specialDayList.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+  sorted.forEach((entry) => {
+    const item = document.createElement("li");
+    const meta = document.createElement("div");
+    meta.className = "special-day-list__meta";
+    const dateSpan = document.createElement("span");
+    dateSpan.className = "special-day-list__date";
+    dateSpan.textContent = formatDisplayDateFromKey(entry.date);
+    const noteSpan = document.createElement("span");
+    noteSpan.textContent = entry.note;
+    meta.append(dateSpan, noteSpan);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "special-day-remove";
+    removeButton.dataset.action = "remove";
+    removeButton.dataset.date = entry.date;
+    removeButton.textContent = "削除";
+
+    item.append(meta, removeButton);
+    fragment.appendChild(item);
+  });
+  specialDayList.appendChild(fragment);
+}
+
+function handleSpecialDaySubmit(event) {
+  event.preventDefault();
+  const date = specialDayDateInput.value;
+  const note = specialDayNoteInput.value.trim();
+  if (!date || !note) {
+    updateSpecialDayStatus("日付とメモを入力してください", "#b42318");
+    return;
+  }
+  const existingIndex = specialDayEntries.findIndex(
+    (entry) => entry.date === date
+  );
+  const payload = { date, note };
+  if (existingIndex >= 0) {
+    specialDayEntries[existingIndex] = payload;
+  } else {
+    specialDayEntries.push(payload);
+  }
+  saveSpecialDayEntries();
+  rebuildSpecialDayMap();
+  renderSpecialDayList();
+  renderCalendar();
+  renderAdminTable();
+  updateSpecialDayStatus(existingIndex >= 0 ? "更新しました" : "追加しました");
+  specialDayForm.reset();
+}
+
+function handleSpecialDayListClick(event) {
+  const button = event.target.closest("[data-action='remove']");
+  if (!button) return;
+  const { date } = button.dataset;
+  specialDayEntries = specialDayEntries.filter((entry) => entry.date !== date);
+  saveSpecialDayEntries();
+  rebuildSpecialDayMap();
+  renderSpecialDayList();
+  renderCalendar();
+  renderAdminTable();
+  updateSpecialDayStatus("削除しました");
+}
+
+function updateSpecialDayStatus(message, color = "#0f7b6c") {
+  if (!specialDayStatus) return;
+  specialDayStatus.textContent = message;
+  specialDayStatus.style.color = color;
 }
 
 function getHolidayName(dateKey) {
