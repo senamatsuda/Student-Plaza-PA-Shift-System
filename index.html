@@ -205,7 +205,14 @@
                   <h3>シフト調整</h3>
                   <p>提出済みデータをもとにシフト表を生成します。</p>
                 </div>
-                <button id="refreshAdmin" class="secondary">シフト表を更新</button>
+                <div class="panel__actions">
+                  <button id="refreshAdmin" class="secondary" type="button">
+                    シフト表を更新
+                  </button>
+                  <button id="exportConfirmedShifts" class="primary" type="button">
+                    確定シフトを出力
+                  </button>
+                </div>
               </div>
               <div class="admin-tools">
                 <label>
@@ -254,6 +261,7 @@
       </div>
     </template>
 
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="script.js" type="module"></script>
   </body>
 </html>
