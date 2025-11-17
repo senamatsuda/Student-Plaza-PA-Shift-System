@@ -607,42 +607,44 @@ button:hover {
 .export-sheet__table thead th {
   text-align: center;
   font-weight: 600;
-  background: #fde68a;
-  color: #92400e;
+  background: #ffdb66;
+  color: #000000;
 }
 
 .export-sheet__table thead th:nth-child(2) {
-  background: #fef3c7;
-  color: #7c2d12;
+  background: #ffdb66;
+  color: #000000;
 }
 
 .export-sheet__table thead th:nth-child(1) {
-  background: #fcd34d;
-  color: #7c2d12;
+  background: #ffdb66;
+  color: #000000;
 }
 
 .export-sheet__table td:nth-child(1) {
-  background: #fff7ed;
+  background: #ffffff;
   font-weight: 600;
   text-align: center;
-  width: 160px;
+  white-space: nowrap;
 }
 
 .export-sheet__table td:nth-child(2) {
-  width: 240px;
+  width: auto;
+  text-align: center;
 }
 
 .export-sheet__table td:nth-child(3),
 .export-sheet__table td:nth-child(4) {
-  width: calc((100% - 400px) / 2);
+  min-width: 0;
+  text-align: center;
 }
 
 .export-sheet__table tr:nth-child(even) td {
-  background: #fffbeb;
+  background: #ffffff;
 }
 
 .export-sheet__table tr.special-day td {
-  background: #fef9c3;
+  background: #ffffff;
 }
 
 .export-sheet__table tr.is-holiday td {
