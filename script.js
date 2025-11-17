@@ -13,6 +13,8 @@ const SHIFT_TEMPLATES = {
   fullday: { label: "1日", start: "10:00", end: "17:00" },
   unavailable: { label: "勤務不可", start: null, end: null },
 };
+const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
+let holidayMap = {};
 
 const monthPicker = document.getElementById("monthPicker");
 const calendarContainer = document.getElementById("calendar");
@@ -28,12 +30,13 @@ const template = document.getElementById("shiftRowTemplate");
 
 init();
 
-function init() {
+async function init() {
   populateNameSelects();
   const now = new Date();
   const currentMonthValue = formatMonthInput(now);
   monthPicker.value = currentMonthValue;
   adminMonthInput.value = currentMonthValue;
+  await loadHolidayData();
   renderCalendar();
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
@@ -72,9 +75,26 @@ function renderCalendar() {
     clone.dataset.monthKey = formatMonthKey(year, month);
 
     dayLabel.textContent = formatDisplayDate(date);
-    if (SPECIAL_DAYS[dateKey]) {
-      noteLabel.textContent = SPECIAL_DAYS[dateKey];
+    const holidayName = getHolidayName(dateKey);
+    const specialNote = SPECIAL_DAYS[dateKey];
+    const noteTexts = [];
+    if (holidayName) {
+      noteTexts.push(`${holidayName}（祝日）`);
+    }
+    if (specialNote) {
+      noteTexts.push(specialNote);
       clone.classList.add("special-day");
+    }
+    noteLabel.textContent = noteTexts.join(" / ");
+    noteLabel.hidden = noteTexts.length === 0;
+    const isHoliday = Boolean(holidayName);
+    if (isHoliday) {
+      clone.classList.add("is-holiday");
+      shiftSelect.disabled = true;
+      shiftSelect.innerHTML = `<option value="">祝日</option>`;
+      customStart.disabled = true;
+      customEnd.disabled = true;
+      clone.setAttribute("aria-disabled", "true");
     }
 
     populateTimeOptions(customStart);
@@ -86,6 +106,7 @@ function renderCalendar() {
       const isOther = shiftSelect.value === "other";
       customStart.disabled = !isOther;
       customEnd.disabled = !isOther;
+      customTimeWrapper.hidden = !isOther;
       customTimeWrapper.classList.toggle("is-visible", isOther);
     };
 
@@ -250,14 +271,23 @@ function renderAdminTable() {
   weekdays.forEach((date) => {
     const dateKey = formatDateKey(date);
     const row = document.createElement("tr");
-    if (SPECIAL_DAYS[dateKey]) {
+    const holidayName = getHolidayName(dateKey);
+    const specialNote = SPECIAL_DAYS[dateKey];
+    if (holidayName) {
+      row.classList.add("is-holiday");
+    }
+    if (specialNote) {
       row.classList.add("special-day");
     }
 
     const metaCell = document.createElement("td");
+    const badgeHtml = [
+      holidayName ? `<div class="badge badge--holiday">${holidayName}（祝日）</div>` : "",
+      specialNote ? `<div class="badge">${specialNote}</div>` : "",
+    ].join("");
     metaCell.innerHTML = `<div>
       <div>${formatDisplayDate(date)}</div>
-      ${SPECIAL_DAYS[dateKey] ? `<div class="badge">${SPECIAL_DAYS[dateKey]}</div>` : ""}
+      ${badgeHtml}
     </div>`;
     row.appendChild(metaCell);
 
@@ -349,4 +379,25 @@ function formatDisplayDate(date) {
 function formatDisplayDateFromKey(key) {
   const [year, month, day] = key.split("-").map(Number);
   return formatDisplayDate(new Date(year, month - 1, day));
+}
+
+async function loadHolidayData() {
+  if (Object.keys(holidayMap).length) {
+    return holidayMap;
+  }
+  try {
+    const response = await fetch(HOLIDAY_API_URL);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch holidays: ${response.status}`);
+    }
+    holidayMap = await response.json();
+  } catch (error) {
+    console.warn("Failed to load Japanese holiday data", error);
+    holidayMap = {};
+  }
+  return holidayMap;
+}
+
+function getHolidayName(dateKey) {
+  return holidayMap[dateKey] ?? null;
 }
