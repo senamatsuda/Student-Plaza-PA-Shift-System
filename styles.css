@@ -151,6 +151,13 @@ main {
   margin-bottom: 1rem;
 }
 
+.panel__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .month-picker,
 .name-select,
 .admin-tools label {
@@ -542,6 +549,108 @@ button:hover {
   background: #e5f6ec;
   border-color: #86efac;
   color: #14532d;
+}
+
+.export-sheet {
+  position: fixed;
+  top: -9999px;
+  left: -9999px;
+  width: 940px;
+  padding: 2rem;
+  background: #fff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  box-shadow: 0 25px 60px rgb(15 23 42 / 0.18);
+  font-family: "Noto Sans JP", "Hiragino Sans", sans-serif;
+}
+
+.export-sheet__heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.export-sheet__title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.export-sheet__subtitle {
+  color: #475467;
+  font-size: 0.95rem;
+  margin-top: 0.3rem;
+}
+
+.export-sheet__time-note {
+  color: #475467;
+  font-size: 0.95rem;
+}
+
+.export-sheet__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.export-sheet__table th,
+.export-sheet__table td {
+  border: 1px solid #cbd5f5;
+  padding: 0.65rem 0.75rem;
+  vertical-align: top;
+}
+
+.export-sheet__table thead th {
+  text-align: center;
+  font-weight: 600;
+  background: #fde68a;
+  color: #92400e;
+}
+
+.export-sheet__table thead th:nth-child(2) {
+  background: #fef3c7;
+  color: #7c2d12;
+}
+
+.export-sheet__table thead th:nth-child(1) {
+  background: #fcd34d;
+  color: #7c2d12;
+}
+
+.export-sheet__table td:nth-child(1) {
+  background: #fff7ed;
+  font-weight: 600;
+  text-align: center;
+  width: 160px;
+}
+
+.export-sheet__table td:nth-child(2) {
+  width: 240px;
+}
+
+.export-sheet__table td:nth-child(3),
+.export-sheet__table td:nth-child(4) {
+  width: calc((100% - 400px) / 2);
+}
+
+.export-sheet__table tr:nth-child(even) td {
+  background: #fffbeb;
+}
+
+.export-sheet__table tr.special-day td {
+  background: #fef9c3;
+}
+
+.export-sheet__table tr.is-holiday td {
+  background: #fee2e2;
+}
+
+.export-sheet__table td div + div {
+  margin-top: 0.2rem;
 }
 
 @media (max-width: 720px) {

@@ -46,6 +46,9 @@ const adminTableWrapper = document.getElementById("adminTableWrapper");
 const adminRefreshButton = document.getElementById("refreshAdmin");
 const adminNameFilter = document.getElementById("adminNameFilter");
 const adminMonthInput = document.getElementById("adminMonth");
+const exportConfirmedButton = document.getElementById(
+  "exportConfirmedShifts"
+);
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
 const adminSubtabButtons = document.querySelectorAll(".admin-subtab-button");
@@ -83,6 +86,12 @@ async function init() {
   adminNameFilter.addEventListener("change", renderAdminTable);
   if (adminTableWrapper) {
     adminTableWrapper.addEventListener("click", handleAdminTableClick);
+  }
+  if (exportConfirmedButton) {
+    exportConfirmedButton.addEventListener(
+      "click",
+      handleExportConfirmedShifts
+    );
   }
   if (specialDayForm) {
     specialDayForm.addEventListener("submit", handleSpecialDaySubmit);
@@ -424,6 +433,10 @@ function renderAdminTable() {
     if (specialNote) {
       row.classList.add("special-day");
     }
+    row.dataset.dateKey = dateKey;
+    row.dataset.displayDate = formatDisplayDate(date);
+    row.dataset.holidayName = holidayName || "";
+    row.dataset.specialNote = specialNote || "";
 
     const metaCell = document.createElement("td");
     const badgeHtml = [
@@ -527,6 +540,173 @@ function handleAdminTableClick(event) {
   entryButton.setAttribute("aria-pressed", String(isConfirmed));
 }
 
+async function handleExportConfirmedShifts() {
+  if (!window.html2canvas) {
+    window.alert("画像出力機能の読み込みに失敗しました。ページを再読み込みしてください。");
+    return;
+  }
+  const tableExists =
+    adminTableWrapper && adminTableWrapper.querySelector(".admin-table");
+  if (!tableExists) {
+    window.alert("シフト表が見つかりません。対象月を確認してください。");
+    return;
+  }
+  const exportData = collectConfirmedShiftData();
+  if (!exportData.rows.length) {
+    window.alert("出力できるデータがありません。");
+    return;
+  }
+  const originalLabel = exportConfirmedButton.textContent;
+  exportConfirmedButton.disabled = true;
+  exportConfirmedButton.textContent = "出力中...";
+  let sheet;
+  try {
+    sheet = buildExportSheet(exportData);
+    document.body.appendChild(sheet);
+    if (document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (error) {
+        console.warn("Font loading wait failed", error);
+      }
+    }
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const canvas = await window.html2canvas(sheet, {
+      backgroundColor: "#ffffff",
+      scale: window.devicePixelRatio > 1 ? 2 : 1.5,
+    });
+    const link = document.createElement("a");
+    link.href = canvas.toDataURL("image/png");
+    link.download = `${exportData.fileName}.png`;
+    link.click();
+  } catch (error) {
+    console.error("Failed to export confirmed shifts", error);
+    window.alert("出力中にエラーが発生しました。時間をおいて再度お試しください。");
+  } finally {
+    if (sheet && sheet.parentNode) {
+      sheet.remove();
+    }
+    exportConfirmedButton.disabled = false;
+    exportConfirmedButton.textContent = originalLabel;
+  }
+}
+
+function collectConfirmedShiftData() {
+  const { year, month } = parseMonthInput(
+    adminMonthInput.value || monthPicker.value
+  );
+  const label = formatMonthLabel(year, month);
+  const rows = Array.from(
+    adminTableWrapper ? adminTableWrapper.querySelectorAll("tbody tr") : []
+  )
+    .map((row) => {
+      const dateKey = row.dataset.dateKey;
+      if (!dateKey) return null;
+      const displayDate =
+        row.dataset.displayDate || formatDisplayDateFromKey(dateKey);
+      const noteParts = [];
+      if (row.dataset.holidayName) {
+        noteParts.push(`${row.dataset.holidayName}（祝日）`);
+      }
+      if (row.dataset.specialNote) {
+        noteParts.push(row.dataset.specialNote);
+      }
+      const slots = { morning: [], afternoon: [] };
+      row
+        .querySelectorAll(".admin-slot-entry.is-confirmed")
+        .forEach((button) => {
+          const slotKey = button.dataset.slot;
+          const name = button.dataset.name;
+          if (!slotKey || !name || !slots[slotKey]) return;
+          slots[slotKey].push(name);
+        });
+      return {
+        dateKey,
+        displayDate,
+        notes: noteParts.join(" / "),
+        isHoliday: Boolean(row.dataset.holidayName),
+        isSpecial: Boolean(row.dataset.specialNote),
+        slots,
+      };
+    })
+    .filter(Boolean);
+  return {
+    rows,
+    label,
+    fileName: `確定シフト_${label.replace(/[^0-9]/g, "")}`,
+  };
+}
+
+function buildExportSheet(exportData) {
+  const wrapper = document.createElement("section");
+  wrapper.className = "export-sheet";
+  wrapper.setAttribute("aria-hidden", "true");
+  const heading = document.createElement("div");
+  heading.className = "export-sheet__heading";
+  heading.innerHTML = `
+    <div>
+      <div class="export-sheet__title">${exportData.label} シフト確定表</div>
+      <div class="export-sheet__subtitle">学生プラザ3F 留学交流グループ</div>
+    </div>
+    <div class="export-sheet__time-note">午前：10:00-13:00 ／ 午後：13:00-17:00</div>
+  `;
+  wrapper.appendChild(heading);
+
+  const table = document.createElement("table");
+  table.className = "export-sheet__table";
+  const thead = document.createElement("thead");
+  thead.innerHTML = `
+    <tr>
+      <th>日付</th>
+      <th>備考</th>
+      <th>午前 (10:00-13:00)</th>
+      <th>午後 (13:00-17:00)</th>
+    </tr>
+  `;
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  exportData.rows.forEach((row) => {
+    const tr = document.createElement("tr");
+    if (row.isHoliday) {
+      tr.classList.add("is-holiday");
+    } else if (row.isSpecial) {
+      tr.classList.add("special-day");
+    }
+    const dateCell = document.createElement("td");
+    dateCell.className = "export-sheet__date";
+    dateCell.textContent = row.displayDate;
+    const noteCell = document.createElement("td");
+    noteCell.textContent = row.notes;
+    const morningCell = document.createElement("td");
+    fillSlotCell(morningCell, row.slots.morning);
+    const afternoonCell = document.createElement("td");
+    fillSlotCell(afternoonCell, row.slots.afternoon);
+
+    tr.appendChild(dateCell);
+    tr.appendChild(noteCell);
+    tr.appendChild(morningCell);
+    tr.appendChild(afternoonCell);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  wrapper.appendChild(table);
+  return wrapper;
+}
+
+function fillSlotCell(cell, names) {
+  if (!names.length) {
+    cell.innerHTML = "&nbsp;";
+    return;
+  }
+  names.forEach((name) => {
+    const div = document.createElement("div");
+    div.textContent = name;
+    cell.appendChild(div);
+  });
+}
+
 function formatEntryLabel(entry, includeTime = false) {
   if (includeTime && entry.start && entry.end) {
     return `${entry.name} (${entry.start}〜${entry.end})`;
@@ -600,6 +780,10 @@ function formatDisplayDate(date) {
 function formatDisplayDateFromKey(key) {
   const [year, month, day] = key.split("-").map(Number);
   return formatDisplayDate(new Date(year, month - 1, day));
+}
+
+function formatMonthLabel(year, month) {
+  return `${year}年${String(month + 1).padStart(2, "0")}月`;
 }
 
 async function loadHolidayData() {
