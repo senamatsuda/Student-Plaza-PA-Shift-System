@@ -11,6 +11,7 @@ const SHIFT_TEMPLATES = {
   morning: { label: "午前", start: "10:00", end: "13:00" },
   afternoon: { label: "午後", start: "13:00", end: "17:00" },
   fullday: { label: "1日", start: "10:00", end: "17:00" },
+  unavailable: { label: "勤務不可", start: null, end: null },
 };
 
 const monthPicker = document.getElementById("monthPicker");
@@ -65,6 +66,7 @@ function renderCalendar() {
     const shiftSelect = clone.querySelector(".shift-select");
     const customStart = clone.querySelector(".custom-start");
     const customEnd = clone.querySelector(".custom-end");
+    const customTimeWrapper = clone.querySelector(".custom-time");
 
     clone.dataset.date = dateKey;
     clone.dataset.monthKey = formatMonthKey(year, month);
@@ -80,11 +82,15 @@ function renderCalendar() {
     customStart.value = "10:00";
     customEnd.value = "17:00";
 
-    shiftSelect.addEventListener("change", () => {
+    const toggleCustomTime = () => {
       const isOther = shiftSelect.value === "other";
       customStart.disabled = !isOther;
       customEnd.disabled = !isOther;
-    });
+      customTimeWrapper.classList.toggle("is-visible", isOther);
+    };
+
+    toggleCustomTime();
+    shiftSelect.addEventListener("change", toggleCustomTime);
 
     calendarContainer.appendChild(clone);
   });
@@ -234,6 +240,7 @@ function renderAdminTable() {
         <th>午後 (13:00-17:00)</th>
         <th>1日 (10:00-17:00)</th>
         <th>その他</th>
+        <th>勤務不可</th>
       </tr>
     </thead>
   `;
@@ -254,23 +261,25 @@ function renderAdminTable() {
     </div>`;
     row.appendChild(metaCell);
 
-    ["morning", "afternoon", "fullday", "other"].forEach((type) => {
-      const cell = document.createElement("td");
-      const items = grouped[dateKey]?.[type] ?? [];
-      if (items.length) {
-        cell.innerHTML = items
-          .map((entry) => {
-            if (type === "other") {
-              return `<div>${entry.name} (${entry.start}〜${entry.end})</div>`;
-            }
-            return `<div>${entry.name}</div>`;
-          })
-          .join("");
-      } else {
-        cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
+    ["morning", "afternoon", "fullday", "other", "unavailable"].forEach(
+      (type) => {
+        const cell = document.createElement("td");
+        const items = grouped[dateKey]?.[type] ?? [];
+        if (items.length) {
+          cell.innerHTML = items
+            .map((entry) => {
+              if (type === "other") {
+                return `<div>${entry.name} (${entry.start}〜${entry.end})</div>`;
+              }
+              return `<div>${entry.name}</div>`;
+            })
+            .join("");
+        } else {
+          cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
+        }
+        row.appendChild(cell);
       }
-      row.appendChild(cell);
-    });
+    );
 
     tbody.appendChild(row);
   });
@@ -282,7 +291,13 @@ function renderAdminTable() {
 function groupByDate(entries) {
   return entries.reduce((acc, entry) => {
     if (!acc[entry.date]) {
-      acc[entry.date] = { morning: [], afternoon: [], fullday: [], other: [] };
+      acc[entry.date] = {
+        morning: [],
+        afternoon: [],
+        fullday: [],
+        other: [],
+        unavailable: [],
+      };
     }
     acc[entry.date][entry.shiftType].push(entry);
     return acc;

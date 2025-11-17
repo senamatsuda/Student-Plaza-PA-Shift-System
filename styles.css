@@ -162,6 +162,14 @@ button:hover {
   font-size: 0.85rem;
 }
 
+.custom-time {
+  display: none;
+}
+
+.custom-time.is-visible {
+  display: flex;
+}
+
 .custom-time select:disabled {
   background: #f2f4f7;
   color: #98a2b3;
