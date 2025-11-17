@@ -1,12 +1,17 @@
+import { CLASS_REPLACEMENT_DAYS } from "./data/classReplacementDays.js";
+
 const NAMES = ["森", "鄭", "長谷川", "片山", "劉", "黄", "中野", "ショーン", "王", "李", "松岡", "郭"];
 const SPECIAL_DAYS = {
   // YYYY-MM-DD: note
   "2023-11-02": "在留期間更新〆切",
-  "2023-11-10": "授業振替日",
   "2023-11-20": "期末試験",
   "2023-11-23": "勤労感謝の日(休館)",
   "2023-11-27": "補講日",
 };
+const CLASS_REPLACEMENT_MAP = CLASS_REPLACEMENT_DAYS.reduce((acc, entry) => {
+  acc[entry.date] = entry;
+  return acc;
+}, {});
 const SHIFT_TEMPLATES = {
   morning: { label: "午前", start: "10:00", end: "13:00" },
   afternoon: { label: "午後", start: "13:00", end: "17:00" },
@@ -77,6 +82,7 @@ function renderCalendar() {
     dayLabel.textContent = formatDisplayDate(date);
     const holidayName = getHolidayName(dateKey);
     const specialNote = SPECIAL_DAYS[dateKey];
+    const classReplacement = CLASS_REPLACEMENT_MAP[dateKey];
     const noteTexts = [];
     if (holidayName) {
       noteTexts.push(`${holidayName}（祝日）`);
@@ -84,6 +90,10 @@ function renderCalendar() {
     if (specialNote) {
       noteTexts.push(specialNote);
       clone.classList.add("special-day");
+    }
+    if (classReplacement) {
+      noteTexts.push(classReplacement.label);
+      clone.classList.add("class-replacement-day");
     }
     noteLabel.textContent = noteTexts.join(" / ");
     noteLabel.hidden = noteTexts.length === 0;
@@ -273,17 +283,24 @@ function renderAdminTable() {
     const row = document.createElement("tr");
     const holidayName = getHolidayName(dateKey);
     const specialNote = SPECIAL_DAYS[dateKey];
+    const classReplacement = CLASS_REPLACEMENT_MAP[dateKey];
     if (holidayName) {
       row.classList.add("is-holiday");
     }
     if (specialNote) {
       row.classList.add("special-day");
     }
+    if (classReplacement) {
+      row.classList.add("is-class-replacement");
+    }
 
     const metaCell = document.createElement("td");
     const badgeHtml = [
       holidayName ? `<div class="badge badge--holiday">${holidayName}（祝日）</div>` : "",
       specialNote ? `<div class="badge">${specialNote}</div>` : "",
+      classReplacement
+        ? `<div class="badge badge--replacement">${classReplacement.label}</div>`
+        : "",
     ].join("");
     metaCell.innerHTML = `<div>
       <div>${formatDisplayDate(date)}</div>
