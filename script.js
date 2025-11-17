@@ -31,6 +31,7 @@ const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
 const SPECIAL_DAY_STORAGE_KEY = "pa-special-days";
 const NAME_STORAGE_KEY = "pa-name-list";
+const SUBMISSION_STORAGE_KEY = "pa-shifts";
 let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
@@ -76,6 +77,7 @@ async function init() {
   renderCalendar();
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
+  studentNameSelect.addEventListener("change", renderCalendar);
   adminRefreshButton.addEventListener("click", renderAdminTable);
   adminMonthInput.addEventListener("change", renderAdminTable);
   adminNameFilter.addEventListener("change", renderAdminTable);
@@ -159,8 +161,27 @@ function populateNameSelects() {
 
 function renderCalendar() {
   const { year, month } = parseMonthInput(monthPicker.value);
+  const monthKey = formatMonthKey(year, month);
+  const selectedName = studentNameSelect.value;
   const weekdays = getWeekdays(year, month);
   calendarContainer.innerHTML = "";
+
+  const savedEntries = loadSubmissions().filter(
+    (entry) => entry.name === selectedName && entry.monthKey === monthKey
+  );
+  const savedEntryMap = savedEntries.reduce((acc, entry) => {
+    acc[entry.date] = entry;
+    return acc;
+  }, {});
+
+  if (formStatus) {
+    if (savedEntries.length) {
+      formStatus.textContent = `${selectedName}さんの提出済みデータを読み込みました`;
+      formStatus.style.color = "#0f7b6c";
+    } else if (!formStatus.textContent.startsWith("提出")) {
+      formStatus.textContent = "";
+    }
+  }
 
   weekdays.forEach((date) => {
     const dateKey = formatDateKey(date);
@@ -203,6 +224,8 @@ function renderCalendar() {
     customStart.value = "10:00";
     customEnd.value = "17:00";
 
+    const savedEntry = savedEntryMap[dateKey];
+
     const toggleCustomTime = () => {
       const isOther = shiftSelect.value === "other";
       customStart.disabled = !isOther;
@@ -210,6 +233,18 @@ function renderCalendar() {
       customTimeWrapper.hidden = !isOther;
       customTimeWrapper.classList.toggle("is-visible", isOther);
     };
+
+    if (savedEntry && !isHoliday) {
+      shiftSelect.value = savedEntry.shiftType;
+      if (savedEntry.shiftType === "other") {
+        if (savedEntry.start) {
+          customStart.value = savedEntry.start;
+        }
+        if (savedEntry.end) {
+          customEnd.value = savedEntry.end;
+        }
+      }
+    }
 
     toggleCustomTime();
     shiftSelect.addEventListener("change", toggleCustomTime);
@@ -332,7 +367,7 @@ function collectEntries() {
 
 function loadSubmissions() {
   try {
-    return JSON.parse(localStorage.getItem("pa-shifts") ?? "[]");
+    return JSON.parse(localStorage.getItem(SUBMISSION_STORAGE_KEY) ?? "[]");
   } catch (error) {
     console.error("Failed to parse submissions", error);
     return [];
@@ -340,7 +375,7 @@ function loadSubmissions() {
 }
 
 function saveSubmissions(data) {
-  localStorage.setItem("pa-shifts", JSON.stringify(data));
+  localStorage.setItem(SUBMISSION_STORAGE_KEY, JSON.stringify(data));
 }
 
 function renderAdminTable() {
