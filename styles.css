@@ -12,9 +12,6 @@
   --holiday: #ffdad6;
   --holiday-disabled: #e2e8f0;
   --holiday-text: #475467;
-  --replacement: #fff4d6;
-  --replacement-border: #facc15;
-  --replacement-text: #b45309;
 }
 
 * {
@@ -240,27 +237,13 @@ button:hover {
   background: var(--holiday-disabled);
   color: var(--holiday-text);
 }
-.badge--replacement {
-  background: #fef3c7;
-  color: var(--replacement-text);
-}
 
 .admin-table tr.is-holiday {
   background: #f1f5f9;
 }
-.admin-table tr.is-class-replacement {
-  background: #fff8e1;
-}
 
 .special-day {
   background: var(--holiday);
-}
-.class-replacement-day {
-  background: var(--replacement);
-  border-color: var(--replacement-border);
-}
-.class-replacement-day .shift-row__note {
-  color: var(--replacement-text);
 }
 
 .shift-row.is-holiday {
