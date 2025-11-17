@@ -633,7 +633,7 @@ function collectConfirmedShiftData() {
     const specialNote = existing?.notes || specialDayMap[dateKey] || "";
     const noteParts = [];
     if (holidayName) {
-      noteParts.push(`${holidayName}（祝日）`);
+      noteParts.push(holidayName);
     }
     if (specialNote) {
       noteParts.push(specialNote);
