@@ -1,4 +1,18 @@
-const NAMES = ["森", "松田", "劉", "長谷川", "中野", "片山", "黄", "ショーン", "繆", "張", "王", "李", "鄭"];
+const DEFAULT_NAMES = [
+  "森",
+  "松田",
+  "劉",
+  "長谷川",
+  "中野",
+  "片山",
+  "黄",
+  "ショーン",
+  "繆",
+  "張",
+  "王",
+  "李",
+  "鄭",
+];
 const DEFAULT_SPECIAL_DAYS = [
   { date: "2023-11-02", note: "在留期間更新〆切" },
   { date: "2023-11-10", note: "授業振替日" },
@@ -14,9 +28,11 @@ const SHIFT_TEMPLATES = {
 };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
 const SPECIAL_DAY_STORAGE_KEY = "pa-special-days";
+const NAME_STORAGE_KEY = "pa-name-list";
 let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
+let paNames = [];
 
 const monthPicker = document.getElementById("monthPicker");
 const calendarContainer = document.getElementById("calendar");
@@ -29,23 +45,30 @@ const adminNameFilter = document.getElementById("adminNameFilter");
 const adminMonthInput = document.getElementById("adminMonth");
 const tabButtons = document.querySelectorAll(".tab-button");
 const tabPanels = document.querySelectorAll(".tab-panel");
+const adminSubtabButtons = document.querySelectorAll(".admin-subtab-button");
+const adminSubtabPanels = document.querySelectorAll(".admin-subtab-panel");
 const specialDayForm = document.getElementById("specialDayForm");
 const specialDayDateInput = document.getElementById("specialDayDate");
 const specialDayNoteInput = document.getElementById("specialDayNote");
 const specialDayList = document.getElementById("specialDayList");
 const specialDayStatus = document.getElementById("specialDayStatus");
+const paNameForm = document.getElementById("paNameForm");
+const paNameInput = document.getElementById("paNameInput");
+const paNameStatus = document.getElementById("paNameStatus");
+const paNameList = document.getElementById("paNameList");
 
 const template = document.getElementById("shiftRowTemplate");
 
 init();
 
 async function init() {
-  populateNameSelects();
+  initializePaNames();
   const now = new Date();
   const currentMonthValue = formatMonthInput(now);
   monthPicker.value = currentMonthValue;
   adminMonthInput.value = currentMonthValue;
   setupTabs();
+  setupAdminSubtabs();
   await loadHolidayData();
   initializeSpecialDays();
   renderCalendar();
@@ -60,17 +83,73 @@ async function init() {
   if (specialDayList) {
     specialDayList.addEventListener("click", handleSpecialDayListClick);
   }
+  if (paNameForm) {
+    paNameForm.addEventListener("submit", handlePaNameSubmit);
+  }
+  if (paNameList) {
+    paNameList.addEventListener("click", handlePaNameListClick);
+  }
   renderAdminTable();
 }
 
-function populateNameSelects() {
-  studentNameSelect.innerHTML = NAMES.map(
-    (name) => `<option value="${name}">${name}</option>`
-  ).join("");
+function initializePaNames() {
+  paNames = loadPaNames();
+  if (!paNames.length) {
+    paNames = [...DEFAULT_NAMES];
+    savePaNames();
+  }
+  populateNameSelects();
+  renderPaNameList();
+}
 
-  adminNameFilter.innerHTML = NAMES.map(
-    (name) => `<option value="${name}" selected>${name}</option>`
-  ).join("");
+function loadPaNames() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(NAME_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((name) => String(name).trim())
+      .filter((name) => name.length > 0);
+  } catch (error) {
+    console.warn("Failed to load names", error);
+    return [];
+  }
+}
+
+function savePaNames() {
+  localStorage.setItem(NAME_STORAGE_KEY, JSON.stringify(paNames));
+}
+
+function populateNameSelects() {
+  const previousStudent = studentNameSelect.value;
+  const previousAdminSelection = new Set(
+    Array.from(adminNameFilter.selectedOptions).map((option) => option.value)
+  );
+
+  studentNameSelect.innerHTML = paNames
+    .map((name) => `<option value="${name}">${name}</option>`)
+    .join("");
+  if (paNames.includes(previousStudent)) {
+    studentNameSelect.value = previousStudent;
+  }
+
+  adminNameFilter.innerHTML = paNames
+    .map((name) => `<option value="${name}">${name}</option>`)
+    .join("");
+  const shouldSelectAll = previousAdminSelection.size === 0;
+  let hasSelected = false;
+  Array.from(adminNameFilter.options).forEach((option) => {
+    const selectOption =
+      shouldSelectAll || previousAdminSelection.has(option.value);
+    option.selected = selectOption;
+    if (selectOption) {
+      hasSelected = true;
+    }
+  });
+  if (!hasSelected) {
+    Array.from(adminNameFilter.options).forEach((option) => {
+      option.selected = true;
+    });
+  }
 }
 
 function renderCalendar() {
@@ -193,45 +272,57 @@ function handleSubmit(event) {
 function collectEntries() {
   const rows = Array.from(calendarContainer.querySelectorAll(".shift-row"));
   const name = studentNameSelect.value;
+  const entries = [];
 
-  return rows
-    .map((row) => {
-      const date = row.dataset.date;
-      const monthKey = row.dataset.monthKey;
-      const shiftSelect = row.querySelector(".shift-select");
-      const customStart = row.querySelector(".custom-start");
-      const customEnd = row.querySelector(".custom-end");
-      const shiftType = shiftSelect.value;
+  rows.forEach((row) => {
+    const date = row.dataset.date;
+    const monthKey = row.dataset.monthKey;
+    const shiftSelect = row.querySelector(".shift-select");
+    const customStart = row.querySelector(".custom-start");
+    const customEnd = row.querySelector(".custom-end");
+    const isDisabled =
+      shiftSelect.disabled || row.getAttribute("aria-disabled") === "true";
 
-      if (!shiftType) return null;
+    if (isDisabled) {
+      return;
+    }
 
-      if (shiftType === "other") {
-        if (customStart.value >= customEnd.value) {
-          throw new Error(
-            `${formatDisplayDateFromKey(date)} の時間帯を確認してください`
-          );
-        }
-        return {
-          name,
-          date,
-          monthKey,
-          shiftType,
-          start: customStart.value,
-          end: customEnd.value,
-        };
+    const shiftType = shiftSelect.value;
+    if (!shiftType) {
+      throw new Error(
+        `${formatDisplayDateFromKey(date)} の勤務帯を選択してください`
+      );
+    }
+
+    if (shiftType === "other") {
+      if (customStart.value >= customEnd.value) {
+        throw new Error(
+          `${formatDisplayDateFromKey(date)} の時間帯を確認してください`
+        );
       }
-
-      const template = SHIFT_TEMPLATES[shiftType];
-      return {
+      entries.push({
         name,
         date,
         monthKey,
         shiftType,
-        start: template.start,
-        end: template.end,
-      };
-    })
-    .filter(Boolean);
+        start: customStart.value,
+        end: customEnd.value,
+      });
+      return;
+    }
+
+    const template = SHIFT_TEMPLATES[shiftType];
+    entries.push({
+      name,
+      date,
+      monthKey,
+      shiftType,
+      start: template.start,
+      end: template.end,
+    });
+  });
+
+  return entries;
 }
 
 function loadSubmissions() {
@@ -441,6 +532,34 @@ function setActiveTab(targetId, activeButton) {
   });
 }
 
+function setupAdminSubtabs() {
+  if (!adminSubtabButtons.length) return;
+  const defaultActive = document.querySelector(
+    ".admin-subtab-button.is-active"
+  );
+  if (defaultActive) {
+    setActiveAdminSubtab(defaultActive.dataset.subtabTarget, defaultActive);
+  }
+  adminSubtabButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveAdminSubtab(button.dataset.subtabTarget, button);
+    });
+  });
+}
+
+function setActiveAdminSubtab(targetId, activeButton) {
+  adminSubtabButtons.forEach((button) => {
+    const isActive = button === activeButton;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+  adminSubtabPanels.forEach((panel) => {
+    const isActive = panel.id === targetId;
+    panel.classList.toggle("is-active", isActive);
+    panel.setAttribute("aria-hidden", String(!isActive));
+  });
+}
+
 function initializeSpecialDays() {
   specialDayEntries = loadSpecialDayEntries();
   if (!specialDayEntries.length) {
@@ -561,6 +680,119 @@ function updateSpecialDayStatus(message, color = "#0f7b6c") {
   if (!specialDayStatus) return;
   specialDayStatus.textContent = message;
   specialDayStatus.style.color = color;
+}
+
+function renderPaNameList() {
+  if (!paNameList) return;
+  paNameList.innerHTML = "";
+  if (!paNames.length) {
+    const empty = document.createElement("li");
+    empty.className = "pa-name-empty";
+    empty.textContent = "登録されている名前はありません";
+    paNameList.appendChild(empty);
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  paNames.forEach((name, index) => {
+    const item = document.createElement("li");
+    item.className = "pa-name-item";
+    item.dataset.index = String(index);
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "pa-name-field";
+    input.value = name;
+
+    const actions = document.createElement("div");
+    actions.className = "pa-name-actions";
+
+    const saveButton = document.createElement("button");
+    saveButton.type = "button";
+    saveButton.dataset.paNameAction = "save";
+    saveButton.dataset.index = String(index);
+    saveButton.textContent = "保存";
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.dataset.paNameAction = "remove";
+    removeButton.dataset.index = String(index);
+    removeButton.textContent = "削除";
+
+    actions.append(saveButton, removeButton);
+    item.append(input, actions);
+    fragment.appendChild(item);
+  });
+  paNameList.appendChild(fragment);
+}
+
+function handlePaNameSubmit(event) {
+  event.preventDefault();
+  if (!paNameInput) return;
+  const newName = paNameInput.value.trim();
+  if (!newName) {
+    updatePaNameStatus("名前を入力してください", "#b42318");
+    return;
+  }
+  if (paNames.includes(newName)) {
+    updatePaNameStatus("同じ名前が既にあります", "#b42318");
+    return;
+  }
+  paNames.push(newName);
+  savePaNames();
+  populateNameSelects();
+  renderPaNameList();
+  updatePaNameStatus("追加しました");
+  paNameForm.reset();
+  renderAdminTable();
+}
+
+function handlePaNameListClick(event) {
+  const actionButton = event.target.closest("[data-pa-name-action]");
+  if (!actionButton) return;
+  const index = Number(actionButton.dataset.index);
+  if (Number.isNaN(index)) return;
+  const action = actionButton.dataset.paNameAction;
+  const item = actionButton.closest(".pa-name-item");
+  if (!item) return;
+  const input = item.querySelector(".pa-name-field");
+  if (!input) return;
+
+  if (action === "remove") {
+    paNames.splice(index, 1);
+    savePaNames();
+    populateNameSelects();
+    renderPaNameList();
+    updatePaNameStatus("削除しました");
+    renderAdminTable();
+    return;
+  }
+
+  if (action === "save") {
+    const updated = input.value.trim();
+    if (!updated) {
+      updatePaNameStatus("名前を入力してください", "#b42318");
+      return;
+    }
+    const isDuplicate = paNames.some(
+      (name, idx) => idx !== index && name === updated
+    );
+    if (isDuplicate) {
+      updatePaNameStatus("同じ名前が既にあります", "#b42318");
+      return;
+    }
+    paNames[index] = updated;
+    savePaNames();
+    populateNameSelects();
+    renderPaNameList();
+    updatePaNameStatus("更新しました");
+    renderAdminTable();
+  }
+}
+
+function updatePaNameStatus(message, color = "#0f7b6c") {
+  if (!paNameStatus) return;
+  paNameStatus.textContent = message;
+  paNameStatus.style.color = color;
 }
 
 function getHolidayName(dateKey) {
