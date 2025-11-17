@@ -26,6 +26,8 @@ const SHIFT_TEMPLATES = {
   fullday: { label: "1日", start: "10:00", end: "17:00" },
   unavailable: { label: "勤務不可", start: null, end: null },
 };
+const MORNING_RANGE = { start: "10:00", end: "13:00" };
+const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
 const SPECIAL_DAY_STORAGE_KEY = "pa-special-days";
 const NAME_STORAGE_KEY = "pa-name-list";
@@ -399,25 +401,39 @@ function renderAdminTable() {
     </div>`;
     row.appendChild(metaCell);
 
-    ["morning", "afternoon", "fullday", "other", "unavailable"].forEach(
-      (type) => {
-        const cell = document.createElement("td");
-        const items = grouped[dateKey]?.[type] ?? [];
-        if (items.length) {
-          cell.innerHTML = items
-            .map((entry) => {
-              if (type === "other") {
-                return `<div>${entry.name} (${entry.start}〜${entry.end})</div>`;
-              }
-              return `<div>${entry.name}</div>`;
-            })
-            .join("");
-        } else {
-          cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
-        }
-        row.appendChild(cell);
+    const dayEntries = grouped[dateKey] ?? createEmptyEntryGroup();
+    const columnConfigs = [
+      {
+        key: "morning",
+        items: buildSlotItems(dayEntries, MORNING_RANGE, "morning"),
+      },
+      {
+        key: "afternoon",
+        items: buildSlotItems(dayEntries, AFTERNOON_RANGE, "afternoon"),
+      },
+      {
+        key: "fullday",
+        items: dayEntries.fullday.map((entry) => formatEntryLabel(entry)),
+      },
+      {
+        key: "other",
+        items: dayEntries.other.map((entry) => formatEntryLabel(entry, true)),
+      },
+      {
+        key: "unavailable",
+        items: dayEntries.unavailable.map((entry) => formatEntryLabel(entry)),
+      },
+    ];
+
+    columnConfigs.forEach(({ items }) => {
+      const cell = document.createElement("td");
+      if (items.length) {
+        cell.innerHTML = items.map((text) => `<div>${text}</div>`).join("");
+      } else {
+        cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
       }
-    );
+      row.appendChild(cell);
+    });
 
     tbody.appendChild(row);
   });
@@ -429,17 +445,65 @@ function renderAdminTable() {
 function groupByDate(entries) {
   return entries.reduce((acc, entry) => {
     if (!acc[entry.date]) {
-      acc[entry.date] = {
-        morning: [],
-        afternoon: [],
-        fullday: [],
-        other: [],
-        unavailable: [],
-      };
+      acc[entry.date] = createEmptyEntryGroup();
     }
     acc[entry.date][entry.shiftType].push(entry);
     return acc;
   }, {});
+}
+
+function createEmptyEntryGroup() {
+  return {
+    morning: [],
+    afternoon: [],
+    fullday: [],
+    other: [],
+    unavailable: [],
+  };
+}
+
+function buildSlotItems(entries, range, slotKey) {
+  const items = [];
+  entries[slotKey].forEach((entry) => {
+    items.push(formatEntryLabel(entry));
+  });
+  entries.fullday.forEach((entry) => {
+    items.push(formatEntryLabel(entry));
+  });
+  entries.other.forEach((entry) => {
+    if (timeRangesOverlap(entry.start, entry.end, range.start, range.end)) {
+      items.push(formatEntryLabel(entry, true));
+    }
+  });
+  return items;
+}
+
+function formatEntryLabel(entry, includeTime = false) {
+  if (includeTime && entry.start && entry.end) {
+    return `${entry.name} (${entry.start}〜${entry.end})`;
+  }
+  return entry.name;
+}
+
+function timeToMinutes(time) {
+  if (!time) return null;
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
+function timeRangesOverlap(startA, endA, startB, endB) {
+  const startMinutesA = timeToMinutes(startA);
+  const endMinutesA = timeToMinutes(endA);
+  const startMinutesB = timeToMinutes(startB);
+  const endMinutesB = timeToMinutes(endB);
+  if (
+    [startMinutesA, endMinutesA, startMinutesB, endMinutesB].some(
+      (value) => value == null
+    )
+  ) {
+    return false;
+  }
+  return startMinutesA < endMinutesB && endMinutesA > startMinutesB;
 }
 
 function getWeekdays(year, month) {
