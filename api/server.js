@@ -7,7 +7,7 @@ const dotenv = require("dotenv");
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3000;
 const API_KEY = process.env.API_KEY || "dev-api-key";
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .split(",")
