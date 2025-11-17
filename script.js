@@ -220,7 +220,7 @@ function renderCalendar() {
 
 function populateTimeOptions(select) {
   select.innerHTML = "";
-  const times = generateTimeSlots(9, 19, 30);
+  const times = generateTimeSlots(10, 17, 30);
   times.forEach((time) => {
     const option = document.createElement("option");
     option.value = time;
