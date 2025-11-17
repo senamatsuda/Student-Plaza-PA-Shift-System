@@ -607,12 +607,12 @@ button:hover {
 .export-sheet__table thead th {
   text-align: center;
   font-weight: 600;
-  background: #fde68a;
+  background: #fcd34d;
   color: #000000;
 }
 
 .export-sheet__table thead th:nth-child(2) {
-  background: #fef3c7;
+  background: #fcd34d;
   color: #000000;
 }
 
@@ -629,7 +629,7 @@ button:hover {
 }
 
 .export-sheet__table td:nth-child(2) {
-  min-width: 100px;
+  white-space: nowrap;
   text-align: center;
 }
 
