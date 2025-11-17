@@ -10,6 +10,8 @@
   --accent-muted: #deebff;
   --warning: #f9c74f;
   --holiday: #ffdad6;
+  --holiday-disabled: #e2e8f0;
+  --holiday-text: #475467;
 }
 
 * {
@@ -231,8 +233,37 @@ button:hover {
   font-size: 0.78rem;
 }
 
+.badge--holiday {
+  background: var(--holiday-disabled);
+  color: var(--holiday-text);
+}
+
+.admin-table tr.is-holiday {
+  background: #f1f5f9;
+}
+
 .special-day {
   background: var(--holiday);
+}
+
+.shift-row.is-holiday {
+  background: var(--holiday-disabled);
+  border-color: #cbd5f5;
+  color: var(--holiday-text);
+}
+
+.shift-row.is-holiday .shift-row__note {
+  color: var(--holiday-text);
+}
+
+.shift-row.is-holiday select,
+.shift-row.is-holiday .custom-time select {
+  background: #e2e8f0;
+  color: #94a3b8;
+}
+
+.shift-row.is-holiday .shift-row__select {
+  opacity: 0.7;
 }
 
 @media (max-width: 720px) {
