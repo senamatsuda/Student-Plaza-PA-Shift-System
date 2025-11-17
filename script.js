@@ -737,8 +737,8 @@ function buildExportSheet(exportData) {
   heading.className = "export-sheet__heading";
   heading.innerHTML = `
     <div>
-      <div class="export-sheet__title">${exportData.label} シフト確定表</div>
-      <div class="export-sheet__subtitle">学生プラザ3F 留学交流グループ</div>
+      <div class="export-sheet__title">${exportData.label} シフト表</div>
+      <div class="export-sheet__subtitle">学生プラザ3F PA</div>
     </div>
     <div class="export-sheet__time-note">午前：10:00-13:00 ／ 午後：13:00-17:00</div>
   `;
