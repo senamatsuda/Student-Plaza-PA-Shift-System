@@ -369,9 +369,6 @@ function renderAdminTable() {
         <th style="width: 160px">日付</th>
         <th>午前 (10:00-13:00)</th>
         <th>午後 (13:00-17:00)</th>
-        <th>1日 (10:00-17:00)</th>
-        <th>その他</th>
-        <th>勤務不可</th>
       </tr>
     </thead>
   `;
@@ -410,18 +407,6 @@ function renderAdminTable() {
       {
         key: "afternoon",
         items: buildSlotItems(dayEntries, AFTERNOON_RANGE, "afternoon"),
-      },
-      {
-        key: "fullday",
-        items: dayEntries.fullday.map((entry) => formatEntryLabel(entry)),
-      },
-      {
-        key: "other",
-        items: dayEntries.other.map((entry) => formatEntryLabel(entry, true)),
-      },
-      {
-        key: "unavailable",
-        items: dayEntries.unavailable.map((entry) => formatEntryLabel(entry)),
       },
     ];
 
