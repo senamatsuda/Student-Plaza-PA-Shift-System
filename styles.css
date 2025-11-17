@@ -512,7 +512,8 @@ button:hover {
 }
 
 .admin-table tr.special-day {
-  background: var(--holiday);
+  background: var(--special-day);
+  border-color: var(--special-day-border);
 }
 
 .admin-slot-entry {
