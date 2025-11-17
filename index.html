@@ -23,59 +23,121 @@
     </header>
 
     <main class="container">
-      <section class="panel">
-        <div class="panel__header">
-          <div>
-            <h2>PAシフト入力</h2>
-            <p>
-              名前を選び、各平日のシフトを指定してください。1日勤務、午前、午後、その他（任意の時間帯）に対応しています。
-            </p>
-          </div>
-          <label class="month-picker">
-            <span>対象月</span>
-            <input type="month" id="monthPicker" />
-          </label>
+      <div class="tabs" role="tablist" aria-label="ビュー切替">
+        <div class="tab-controls">
+          <button
+            class="tab-button is-active"
+            data-tab-target="paTab"
+            role="tab"
+            aria-selected="true"
+          >
+            PA入力
+          </button>
+          <button
+            class="tab-button"
+            data-tab-target="adminTab"
+            role="tab"
+            aria-selected="false"
+          >
+            Admin
+          </button>
         </div>
 
-        <form id="shiftForm">
-          <label class="name-select">
-            <span>名前</span>
-            <select id="studentName" required></select>
-          </label>
-
-          <div id="calendar"></div>
-
-          <div class="form-actions">
-            <button type="submit" class="primary">シフトを提出</button>
-            <span id="formStatus" role="status" aria-live="polite"></span>
+        <section
+          class="panel tab-panel is-active"
+          id="paTab"
+          role="tabpanel"
+          aria-labelledby="paTabHeading"
+        >
+          <div class="panel__header">
+            <div>
+              <h2 id="paTabHeading">PAシフト入力</h2>
+              <p>
+                名前を選び、各平日のシフトを指定してください。1日勤務、午前、午後、その他（任意の時間帯）に対応しています。
+              </p>
+            </div>
+            <label class="month-picker">
+              <span>対象月</span>
+              <input type="month" id="monthPicker" />
+            </label>
           </div>
-        </form>
-      </section>
 
-      <section class="panel" id="adminPanel">
-        <div class="panel__header">
-          <div>
-            <h2>Adminシフト集計</h2>
-            <p>
-              提出済みデータをもとにシフト表を生成します。Excelのフォーマットを意識した縦型の集計テーブルで確認できます。
-            </p>
+          <form id="shiftForm">
+            <label class="name-select">
+              <span>名前</span>
+              <select id="studentName" required></select>
+            </label>
+
+            <div id="calendar"></div>
+
+            <div class="form-actions">
+              <button type="submit" class="primary">シフトを提出</button>
+              <span id="formStatus" role="status" aria-live="polite"></span>
+            </div>
+          </form>
+        </section>
+
+        <section
+          class="panel tab-panel"
+          id="adminTab"
+          role="tabpanel"
+          aria-labelledby="adminTabHeading"
+          aria-hidden="true"
+        >
+          <div class="panel__header">
+            <div>
+              <h2 id="adminTabHeading">Adminシフト集計</h2>
+              <p>
+                提出済みデータをもとにシフト表を生成します。Excelのフォーマットを意識した縦型の集計テーブルで確認できます。
+              </p>
+            </div>
+            <button id="refreshAdmin" class="secondary">シフト表を更新</button>
           </div>
-          <button id="refreshAdmin" class="secondary">シフト表を更新</button>
-        </div>
 
-        <div class="admin-tools">
-          <label>
-            <span>表示する名前（複数選択可）</span>
-            <select id="adminNameFilter" multiple></select>
-          </label>
-          <label>
-            <span>対象月</span>
-            <input type="month" id="adminMonth" />
-          </label>
-        </div>
+          <div class="admin-tools">
+            <label>
+              <span>表示する名前（複数選択可）</span>
+              <select id="adminNameFilter" multiple></select>
+            </label>
+            <label>
+              <span>対象月</span>
+              <input type="month" id="adminMonth" />
+            </label>
+          </div>
 
-        <div id="adminTableWrapper" class="table-wrapper" aria-live="polite"></div>
-      </section>
+          <div class="special-day-manager">
+            <div>
+              <h3>特別日を登録</h3>
+              <p>
+                授業振替日や在留期間更新など、PA入力画面でハイライトしたい日付を追加できます。
+              </p>
+            </div>
+            <form id="specialDayForm" class="special-day-form">
+              <label>
+                <span>日付</span>
+                <input type="date" id="specialDayDate" required />
+              </label>
+              <label>
+                <span>メモ</span>
+                <input
+                  type="text"
+                  id="specialDayNote"
+                  placeholder="授業振替日 など"
+                  maxlength="60"
+                  required
+                />
+              </label>
+              <div class="special-day-actions">
+                <button type="submit" class="primary">登録 / 更新</button>
+                <span id="specialDayStatus" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+            <ul id="specialDayList" class="special-day-list" aria-live="polite"></ul>
+          </div>
+
+          <div id="adminTableWrapper" class="table-wrapper" aria-live="polite"></div>
+        </section>
+      </div>
     </main>
 
     <template id="shiftRowTemplate">
