@@ -515,6 +515,34 @@ button:hover {
   background: var(--holiday);
 }
 
+.admin-slot-entry {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.25rem 0.5rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.admin-slot-entry + .admin-slot-entry {
+  margin-top: 0.3rem;
+}
+
+.admin-slot-entry:hover {
+  background: #f1f5f9;
+}
+
+.admin-slot-entry.is-confirmed {
+  background: #e5f6ec;
+  border-color: #86efac;
+  color: #14532d;
+}
+
 @media (max-width: 720px) {
   .shift-row {
     grid-template-columns: 1fr;

@@ -79,6 +79,9 @@ async function init() {
   adminRefreshButton.addEventListener("click", renderAdminTable);
   adminMonthInput.addEventListener("change", renderAdminTable);
   adminNameFilter.addEventListener("change", renderAdminTable);
+  if (adminTableWrapper) {
+    adminTableWrapper.addEventListener("click", handleAdminTableClick);
+  }
   if (specialDayForm) {
     specialDayForm.addEventListener("submit", handleSpecialDaySubmit);
   }
@@ -401,19 +404,31 @@ function renderAdminTable() {
     const dayEntries = grouped[dateKey] ?? createEmptyEntryGroup();
     const columnConfigs = [
       {
-        key: "morning",
+        slotKey: "morning",
         items: buildSlotItems(dayEntries, MORNING_RANGE, "morning"),
       },
       {
-        key: "afternoon",
+        slotKey: "afternoon",
         items: buildSlotItems(dayEntries, AFTERNOON_RANGE, "afternoon"),
       },
     ];
 
-    columnConfigs.forEach(({ items }) => {
+    columnConfigs.forEach(({ items, slotKey }) => {
       const cell = document.createElement("td");
       if (items.length) {
-        cell.innerHTML = items.map((text) => `<div>${text}</div>`).join("");
+        const fragment = document.createDocumentFragment();
+        items.forEach((item) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "admin-slot-entry";
+          button.textContent = item.label;
+          button.dataset.date = item.date;
+          button.dataset.slot = slotKey;
+          button.dataset.name = item.name;
+          button.setAttribute("aria-pressed", "false");
+          fragment.appendChild(button);
+        });
+        cell.appendChild(fragment);
       } else {
         cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
       }
@@ -449,18 +464,32 @@ function createEmptyEntryGroup() {
 
 function buildSlotItems(entries, range, slotKey) {
   const items = [];
+  const pushEntry = (entry, includeTime = false) => {
+    items.push({
+      label: formatEntryLabel(entry, includeTime),
+      name: entry.name,
+      date: entry.date,
+    });
+  };
   entries[slotKey].forEach((entry) => {
-    items.push(formatEntryLabel(entry));
+    pushEntry(entry);
   });
   entries.fullday.forEach((entry) => {
-    items.push(formatEntryLabel(entry));
+    pushEntry(entry);
   });
   entries.other.forEach((entry) => {
     if (timeRangesOverlap(entry.start, entry.end, range.start, range.end)) {
-      items.push(formatEntryLabel(entry, true));
+      pushEntry(entry, true);
     }
   });
   return items;
+}
+
+function handleAdminTableClick(event) {
+  const entryButton = event.target.closest(".admin-slot-entry");
+  if (!entryButton) return;
+  const isConfirmed = entryButton.classList.toggle("is-confirmed");
+  entryButton.setAttribute("aria-pressed", String(isConfirmed));
 }
 
 function formatEntryLabel(entry, includeTime = false) {
