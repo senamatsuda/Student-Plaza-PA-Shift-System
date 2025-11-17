@@ -614,6 +614,8 @@ button:hover {
 .export-sheet__table thead th:nth-child(2) {
   background: #ffdb66;
   color: #000000;
+  width: 1%;
+  white-space: nowrap;
 }
 
 .export-sheet__table thead th:nth-child(1) {
@@ -629,7 +631,8 @@ button:hover {
 }
 
 .export-sheet__table td:nth-child(2) {
-  width: auto;
+  width: 1%;
+  white-space: nowrap;
   text-align: center;
 }
 
