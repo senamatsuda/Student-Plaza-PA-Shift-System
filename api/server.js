@@ -1,3 +1,4 @@
+
 import cors from "cors";
 import express from "express";
 import morgan from "morgan";
@@ -9,7 +10,7 @@ const storage = createStorage(DATA_FILE);
 await storage.ensureInitialized();
 
 const app = express();
-app.use(cors({ origin: true }));
+app.use(cors({ origin: "https://senamatsuda.github.io" }));
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 
