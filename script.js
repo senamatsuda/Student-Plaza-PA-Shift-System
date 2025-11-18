@@ -22,9 +22,11 @@ const STORAGE_ERROR_MESSAGE =
 const storageBackend = createStorageBackend();
 const isEphemeralStorage = storageBackend.type !== "localStorage";
 const remoteSyncClient = createRemoteSyncClient();
+const REMOTE_KEEPALIVE_INTERVAL_MS = 14 * 60 * 1000;
 const remoteSyncState = { lastPull: null, lastPush: null };
 let remotePushTimeoutId = null;
 let remotePushInFlight = false;
+let remoteKeepAliveTimerId = null;
 
 let submissionEntries = [];
 let holidayMap = {};
@@ -237,6 +239,7 @@ init().catch((error) => {
 async function init() {
   if (remoteSyncClient) {
     await syncRemoteDataFromServer();
+    startRemoteKeepAlive();
   } else {
     updateSyncStatus(
       "リモートAPIが設定されていないため、このブラウザ内にのみデータが保存されます。",
@@ -1654,7 +1657,28 @@ function createRemoteSyncClient() {
         body: JSON.stringify(payload),
       });
     },
+    async ping() {
+      return request("/");
+    },
   };
+}
+
+function startRemoteKeepAlive() {
+  if (!remoteSyncClient || remoteKeepAliveTimerId) {
+    return;
+  }
+  const runPing = async () => {
+    try {
+      await remoteSyncClient.ping();
+    } catch (error) {
+      console.warn("Remote keep-alive ping failed", error);
+    }
+  };
+  runPing();
+  remoteKeepAliveTimerId = window.setInterval(
+    runPing,
+    REMOTE_KEEPALIVE_INTERVAL_MS
+  );
 }
 
 function getHolidayName(dateKey) {
