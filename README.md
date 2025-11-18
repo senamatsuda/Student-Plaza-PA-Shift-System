@@ -21,6 +21,28 @@
 
 > ⚠️ LocalStorage が利用できない環境 (シークレットウィンドウなど) の場合は、ページを閉じるとデータが失われます。
 
+## Render (無料プラン) で公開する手順
+
+静的サイトとして構成されているため、Render の無料 Static Site サービスでそのまま公開できます。`render.yaml` をリポジトリに含めてあるので、Blueprint からのデプロイが可能です。
+
+1. **GitHub にリポジトリを用意**
+   - このリポジトリを自身の GitHub アカウントへ push します (Public でも Private でも可)。
+2. **Render アカウントを作成 / ログイン**
+   - https://render.com にアクセスし、無料アカウントを作成します。
+3. **Blueprint (Infrastructure as Code) でデプロイ**
+   - Render ダッシュボードで「New +」→「Blueprint」を選択し、GitHub と連携します。
+   - 対象リポジトリを選択すると `render.yaml` が検出され、Static Site の設定が自動入力されます。
+   - `name` は Render 上のサービス名です。必要に応じて変更してください。
+   - Build Command は空、Publish Directory はリポジトリルート (`.`) のままで問題ありません。
+4. **デプロイを開始**
+   - 「Apply」→「Deploy」を押すとビルドが始まり、完了後に自動で https://<your-service>.onrender.com が割り当てられます。
+   - サイトが 404 になる場合はデプロイ完了を待つか、`render.yaml` の設定を再確認してください。
+5. **更新方法**
+   - main ブランチ (もしくは Render で指定したブランチ) に push すると、自動で再デプロイされます。
+   - ローカルでの挙動と同じく、各利用者の LocalStorage にのみデータが保存されるため、データ共有が必要な場合は別途仕組みを用意してください。
+
+> Render 無料枠の Static Site は、30 分間アクセスがないとスリープし次回アクセス時に数十秒かけて再起動します。待機時間を減らしたい場合は有料プランの利用を検討してください。
+
 ## データの保存について
 
 | 種別 | 保存先 LocalStorage キー | 備考 |
