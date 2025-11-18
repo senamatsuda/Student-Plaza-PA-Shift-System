@@ -14,7 +14,7 @@ services:
       - key: API_KEY
         generateValue: true
       - key: ALLOWED_ORIGINS
-        value: https://<your-frontend-host>
+        value: https://senamatsuda.github.io/Student-Plaza-PA-Shift-System/
       - key: DATABASE_FILE
         value: /var/data/pa-shift-data.sqlite
     disk:
