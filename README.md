@@ -35,6 +35,21 @@
 2. 任意の HTTP サーバーでルートディレクトリを公開します (例: `python -m http.server 8000`)。
 3. ブラウザで該当 URL を開き、PA は「PA入力」タブから提出、Admin は「Admin」タブから集計や各種 CRUD を行います。`Admin` タブの「再取得」ボタンで API から最新データを再読込できます。
 
+### 3. Render へのデプロイ
+
+`render.yaml` に Render Web Service の定義を追加しました。リポジトリを Render に接続すると、このファイルの内容がそのまま適用されます。GUI で手動設定する場合は以下を参考にしてください。
+
+1. **Service**: Type = `Web Service`, Runtime = `Node`, Root Directory = `api`。
+2. **Build / Start Command**: `npm install` / `npm start`。
+3. **Environment**: `PORT` は Render が自動注入します。手動で以下を追加します。
+   - `API_KEY`: フロントエンドで利用するシークレット。
+   - `ALLOWED_ORIGINS`: `https://<your-account>.github.io` などカンマ区切り。
+   - `DATABASE_FILE`: `/var/data/pa-shift-data.sqlite`
+4. **Persistent Disk**: "Add Disk" から 1GB 程度のディスクを追加し、Mount Path を `/var/data` に設定します。`DATABASE_FILE` の値と一致させることで SQLite ファイルがデプロイ間で保持されます。
+5. **Health Check**: Path を `/health` にすることで Render の自動ヘルスチェックが `server.js` の `/health` エンドポイントを参照します。
+
+デプロイ後は Render のサービス URL を `index.html` のメタタグ `pa-shift-api-base-url` に設定し、同じ `API_KEY` を `pa-shift-api-key` にセットしてください。
+
 ## 認証と CORS
 
 - すべての API エンドポイントは `x-api-key` ヘッダーを必須としています。`api/.env` の `API_KEY` と同じ値をフロントエンドに設定してください。
