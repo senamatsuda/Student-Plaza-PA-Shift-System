@@ -9,7 +9,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.API_KEY || "dev-api-key";
+const API_KEY = process.env.API_KEY || "student-plaza-pa-shift-system";
 function normalizeOrigin(entry) {
   if (!entry) {
     return "";
