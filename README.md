@@ -43,7 +43,7 @@
 2. **Build / Start Command**: `npm install` / `npm start`。
 3. **Environment**: `PORT` は Render が自動注入します。手動で以下を追加します。
    - `API_KEY`: フロントエンドで利用するシークレット。
-   - `ALLOWED_ORIGINS`: `https://<your-account>.github.io` などカンマ区切り。
+   - `ALLOWED_ORIGINS`: `https://<your-account>.github.io` などカンマ区切り。`https://example.com/foo/bar` のようにパス付き URL を指定しても、サーバー側でオリジン (`https://example.com`) へ自動的に正規化されます。
    - `DATABASE_FILE`: `/var/data/pa-shift-data.sqlite`
 4. **Persistent Disk**: "Add Disk" から 1GB 程度のディスクを追加し、Mount Path を `/var/data` に設定します。`DATABASE_FILE` の値と一致させることで SQLite ファイルがデプロイ間で保持されます。
 5. **Health Check**: Path を `/health` にすることで Render の自動ヘルスチェックが `server.js` の `/health` エンドポイントを参照します。
