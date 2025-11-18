@@ -2,7 +2,6 @@ services:
   - type: web
     name: student-plaza-pa-shift-system
     buildCommand: ""
-    publishPath: .
     pullRequestPreviewsEnabled: false
     routes:
       - type: rewrite
