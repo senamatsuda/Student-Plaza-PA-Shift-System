@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
+const fs = require("fs");
 const dotenv = require("dotenv");
 
 dotenv.config();
@@ -14,8 +15,17 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
   .map((origin) => origin.trim())
   .filter(Boolean);
 
-const dbFile = path.join(__dirname, "data.sqlite");
+const persistentDir =
+  process.env.DATABASE_DIR ||
+  process.env.PERSISTENT_DATA_DIR ||
+  process.env.DATA_VOLUME;
+const defaultDbFile = persistentDir
+  ? path.join(persistentDir, "pa-shift-data.sqlite")
+  : path.join(__dirname, "data.sqlite");
+const dbFile = process.env.DATABASE_FILE || defaultDbFile;
+fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 const db = new sqlite3.Database(dbFile);
+console.log(`Using SQLite file at ${dbFile}`);
 
 app.use(
   cors({
