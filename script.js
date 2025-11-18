@@ -11,6 +11,7 @@ const LOCAL_STORAGE_KEYS = {
   names: "paShiftNames",
   specialDays: "paShiftSpecialDays",
   submissions: "paShiftSubmissions",
+  confirmedShifts: "paShiftConfirmedShifts",
 };
 const ID_COUNTER_KEYS = {
   names: "paShiftNamesNextId",
@@ -30,6 +31,7 @@ let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
 let paNames = [];
+let confirmedShiftMap = {};
 
 const monthPicker = document.getElementById("monthPicker");
 const calendarContainer = document.getElementById("calendar");
@@ -130,6 +132,75 @@ function writeStorageArray(key, value) {
   storageSetItem(key, JSON.stringify(value));
 }
 
+function loadConfirmedShiftMap() {
+  const raw = storageGetItem(LOCAL_STORAGE_KEYS.confirmedShifts);
+  if (!raw) {
+    confirmedShiftMap = {};
+    return;
+  }
+  try {
+    confirmedShiftMap = sanitizeConfirmedShiftMap(JSON.parse(raw));
+  } catch (error) {
+    console.warn("Failed to parse confirmed shift data", error);
+    confirmedShiftMap = {};
+  }
+}
+
+function persistConfirmedShiftMap() {
+  try {
+    storageSetItem(
+      LOCAL_STORAGE_KEYS.confirmedShifts,
+      JSON.stringify(confirmedShiftMap)
+    );
+    scheduleRemotePush();
+  } catch (error) {
+    console.error("Failed to persist confirmed shifts", error);
+  }
+}
+
+function updateConfirmedShiftState(monthKey, entryKey, isConfirmed) {
+  if (!monthKey || !entryKey) return;
+  if (!confirmedShiftMap[monthKey]) {
+    if (!isConfirmed) {
+      return;
+    }
+    confirmedShiftMap[monthKey] = {};
+  }
+  if (isConfirmed) {
+    confirmedShiftMap[monthKey][entryKey] = true;
+  } else {
+    delete confirmedShiftMap[monthKey][entryKey];
+    if (!Object.keys(confirmedShiftMap[monthKey]).length) {
+      delete confirmedShiftMap[monthKey];
+    }
+  }
+  persistConfirmedShiftMap();
+}
+
+function sanitizeConfirmedShiftMap(data) {
+  if (!data || typeof data !== "object") {
+    return {};
+  }
+  return Object.entries(data).reduce((acc, [monthKey, entries]) => {
+    if (!entries || typeof entries !== "object") {
+      return acc;
+    }
+    const sanitizedEntries = Object.entries(entries).reduce(
+      (entryAcc, [entryKey, value]) => {
+        if (value) {
+          entryAcc[entryKey] = true;
+        }
+        return entryAcc;
+      },
+      {}
+    );
+    if (Object.keys(sanitizedEntries).length) {
+      acc[monthKey] = sanitizedEntries;
+    }
+    return acc;
+  }, {});
+}
+
 function getNextStorageId(type) {
   const key = ID_COUNTER_KEYS[type];
   if (!key) {
@@ -183,6 +254,7 @@ async function init() {
   await loadHolidayData();
   await initializeSpecialDays();
   await refreshSubmissions();
+  loadConfirmedShiftMap();
   renderCalendar();
   if (isEphemeralStorage && formStatus) {
     formStatus.textContent =
@@ -548,6 +620,7 @@ function renderAdminTable() {
   );
 
   const grouped = groupByDate(submissions);
+  const confirmedEntries = confirmedShiftMap[monthKey] || {};
   adminTableWrapper.innerHTML = "";
 
   if (!weekdays.length) {
@@ -618,10 +691,17 @@ function renderAdminTable() {
           button.className = "admin-slot-entry";
           button.textContent = item.label;
           button.dataset.date = item.date;
-          button.dataset.slot = slotKey;
+          button.dataset.slot = item.slot || slotKey;
           button.dataset.name = item.name;
           button.dataset.label = item.label;
-          button.setAttribute("aria-pressed", "false");
+          button.dataset.monthKey = monthKey;
+          const entryKey = buildConfirmedEntryKey(item);
+          button.dataset.entryKey = entryKey;
+          const isConfirmed = Boolean(confirmedEntries[entryKey]);
+          if (isConfirmed) {
+            button.classList.add("is-confirmed");
+          }
+          button.setAttribute("aria-pressed", String(isConfirmed));
           fragment.appendChild(button);
         });
         cell.appendChild(fragment);
@@ -678,25 +758,52 @@ function createEmptyEntryGroup() {
 
 function buildSlotItems(entries, range, slotKey) {
   const items = [];
-  const pushEntry = (entry, includeTime = false) => {
+  const pushEntry = (entry, label) => {
     items.push({
-      label: formatEntryLabel(entry, includeTime),
+      label,
       name: entry.name,
       date: entry.date,
+      slot: slotKey,
+      start: entry.start || "",
+      end: entry.end || "",
+      shiftType: entry.shiftType || "",
     });
   };
   entries[slotKey].forEach((entry) => {
-    pushEntry(entry);
+    pushEntry(entry, entry.name);
   });
   entries.fullday.forEach((entry) => {
-    pushEntry(entry);
+    pushEntry(entry, entry.name);
   });
   entries.other.forEach((entry) => {
-    if (timeRangesOverlap(entry.start, entry.end, range.start, range.end)) {
-      pushEntry(entry, true);
+    const overlap = calculateTimeOverlapRange(
+      entry.start,
+      entry.end,
+      range.start,
+      range.end
+    );
+    if (!overlap) {
+      return;
     }
+    const coversFullSlot = entryCoversSlotRange(entry, range);
+    const label = coversFullSlot
+      ? entry.name
+      : `${entry.name}(${overlap.start}-${overlap.end})`;
+    pushEntry(entry, label);
   });
   return items;
+}
+
+function buildConfirmedEntryKey(item) {
+  return [
+    item.date,
+    item.slot,
+    item.name,
+    item.label,
+    item.start || "",
+    item.end || "",
+    item.shiftType || "",
+  ].join("|");
 }
 
 function handleAdminTableClick(event) {
@@ -704,6 +811,11 @@ function handleAdminTableClick(event) {
   if (!entryButton) return;
   const isConfirmed = entryButton.classList.toggle("is-confirmed");
   entryButton.setAttribute("aria-pressed", String(isConfirmed));
+  updateConfirmedShiftState(
+    entryButton.dataset.monthKey,
+    entryButton.dataset.entryKey,
+    isConfirmed
+  );
 }
 
 async function handleExportConfirmedShifts() {
@@ -887,20 +999,14 @@ function fillSlotCell(cell, names) {
   cell.textContent = names.join("・");
 }
 
-function formatEntryLabel(entry, includeTime = false) {
-  if (includeTime && entry.start && entry.end) {
-    return `${entry.name} ${entry.start}〜${entry.end}`;
-  }
-  return entry.name;
+function minutesToTimeString(minutes) {
+  if (!Number.isFinite(minutes)) return "";
+  const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
+  const minute = String(minutes % 60).padStart(2, "0");
+  return `${hour}:${minute}`;
 }
 
-function timeToMinutes(time) {
-  if (!time) return null;
-  const [hour, minute] = time.split(":").map(Number);
-  return hour * 60 + minute;
-}
-
-function timeRangesOverlap(startA, endA, startB, endB) {
+function calculateTimeOverlapRange(startA, endA, startB, endB) {
   const startMinutesA = timeToMinutes(startA);
   const endMinutesA = timeToMinutes(endA);
   const startMinutesB = timeToMinutes(startB);
@@ -910,9 +1016,36 @@ function timeRangesOverlap(startA, endA, startB, endB) {
       (value) => value == null
     )
   ) {
+    return null;
+  }
+  const overlapStart = Math.max(startMinutesA, startMinutesB);
+  const overlapEnd = Math.min(endMinutesA, endMinutesB);
+  if (overlapStart >= overlapEnd) {
+    return null;
+  }
+  return {
+    start: minutesToTimeString(overlapStart),
+    end: minutesToTimeString(overlapEnd),
+  };
+}
+
+function entryCoversSlotRange(entry, slotRange) {
+  const entryStart = timeToMinutes(entry.start);
+  const entryEnd = timeToMinutes(entry.end);
+  const slotStart = timeToMinutes(slotRange.start);
+  const slotEnd = timeToMinutes(slotRange.end);
+  if (
+    [entryStart, entryEnd, slotStart, slotEnd].some((value) => value == null)
+  ) {
     return false;
   }
-  return startMinutesA < endMinutesB && endMinutesA > startMinutesB;
+  return entryStart <= slotStart && entryEnd >= slotEnd;
+}
+
+function timeToMinutes(time) {
+  if (!time) return null;
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
 }
 
 function getWeekdays(year, month) {
@@ -1389,6 +1522,7 @@ function collectLocalDataset() {
     names: paNames,
     specialDays: specialDayEntries,
     submissions: submissionEntries,
+    confirmedShifts: confirmedShiftMap,
     counters: {
       namesNextId: getStorageCounterValue("names"),
       specialDaysNextId: getStorageCounterValue("specialDays"),
@@ -1406,6 +1540,13 @@ function applyRemoteDataset(dataset) {
     }
     if (Array.isArray(dataset.submissions)) {
       writeStorageArray(LOCAL_STORAGE_KEYS.submissions, dataset.submissions);
+    }
+    if (dataset.confirmedShifts && typeof dataset.confirmedShifts === "object") {
+      confirmedShiftMap = sanitizeConfirmedShiftMap(dataset.confirmedShifts);
+      storageSetItem(
+        LOCAL_STORAGE_KEYS.confirmedShifts,
+        JSON.stringify(confirmedShiftMap)
+      );
     }
     if (dataset.counters) {
       if (dataset.counters.namesNextId != null) {
