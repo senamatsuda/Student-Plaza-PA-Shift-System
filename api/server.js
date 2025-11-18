@@ -10,21 +10,29 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.API_KEY || "student-plaza-pa-shift-system";
+
+/**
+ * Normalize an origin entry:
+ * - If it's a full URL (with protocol), use URL.origin (scheme + host + port).
+ * - Otherwise, just trim trailing slash.
+ */
 function normalizeOrigin(entry) {
-  if (!entry) {
-    return "";
-  }
-  if (entry === "*") {
-    return "*";
-  }
+  if (!entry) return "";
+  if (entry === "*") return "*";
+
   try {
     const parsed = new URL(entry);
     return parsed.origin;
   } catch (error) {
+    // Fallback for values like "http://localhost:5173/" (no parsing needed)
     return entry.replace(/\/$/, "");
   }
 }
 
+/**
+ * Build allowedOrigins from ALLOWED_ORIGINS env:
+ *  ALLOWED_ORIGINS=https://your-frontend.onrender.com,http://localhost:5173
+ */
 const allowedOrigins = Array.from(
   new Set(
     (process.env.ALLOWED_ORIGINS || "")
@@ -35,21 +43,34 @@ const allowedOrigins = Array.from(
       .filter(Boolean)
   )
 );
+
 const allowAllOrigins = allowedOrigins.includes("*");
+
+// Helpful startup logs
+console.log("=== CORS configuration ===");
+console.log("Raw ALLOWED_ORIGINS:", process.env.ALLOWED_ORIGINS || "(none)");
+console.log("Normalized allowedOrigins:", allowedOrigins);
+console.log("allowAllOrigins:", allowAllOrigins);
+console.log("==========================");
 
 const corsOptions = {
   origin(origin, callback) {
+    console.log("CORS request from origin:", origin || "(no origin header)");
+
+    // Allow non-browser / server-to-server calls (no Origin header)
     if (!origin) {
       callback(null, true);
       return;
     }
+
     if (
       allowAllOrigins ||
-      !allowedOrigins.length ||
+      !allowedOrigins.length || // if nothing set, allow everything
       allowedOrigins.includes(origin)
     ) {
       callback(null, true);
     } else {
+      console.warn("Blocked by CORS. Origin not allowed:", origin);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -62,11 +83,15 @@ const persistentDir =
   process.env.DATABASE_DIR ||
   process.env.PERSISTENT_DATA_DIR ||
   process.env.DATA_VOLUME;
+
 const defaultDbFile = persistentDir
   ? path.join(persistentDir, "pa-shift-data.sqlite")
   : path.join(__dirname, "data.sqlite");
+
 const dbFile = process.env.DATABASE_FILE || defaultDbFile;
+
 fs.mkdirSync(path.dirname(dbFile), { recursive: true });
+
 const db = new sqlite3.Database(dbFile);
 console.log(`Using SQLite file at ${dbFile}`);
 
@@ -74,11 +99,14 @@ app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 app.use(express.json());
 
+// Auth middleware (after CORS)
 app.use((req, res, next) => {
+  // Let OPTIONS through without auth; CORS preflight
   if (req.method === "OPTIONS") {
     res.sendStatus(204);
     return;
   }
+
   const incomingKey = req.header("x-api-key");
   if (!incomingKey || incomingKey !== API_KEY) {
     res.status(401).json({ error: "Unauthorized" });
@@ -86,6 +114,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// --- DB helpers ---
 
 function dbRun(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -123,6 +153,8 @@ function dbGet(sql, params = []) {
   });
 }
 
+// --- Default seed data ---
+
 const DEFAULT_NAMES = [
   "森",
   "松田",
@@ -140,11 +172,11 @@ const DEFAULT_NAMES = [
 ];
 
 const DEFAULT_SPECIAL_DAYS = [
-  { date: "2023-11-02", note: "在留期間更新〆切" },
-  { date: "2023-11-10", note: "授業振替日" },
-  { date: "2023-11-20", note: "期末試験" },
-  { date: "2023-11-23", note: "勤労感謝の日(休館)" },
-  { date: "2023-11-27", note: "補講日" },
+  { date: "2023-11-07", note: "金曜授業" },
+  { date: "2023-11-11", note: "在留期間更新" },
+  { date: "2023-11-12", note: "在留期間更新" },
+  { date: "2023-11-13", note: "在留期間更新" },
+  { date: "2023-11-25", note: "期末試験" },
 ];
 
 async function initializeDatabase() {
@@ -200,10 +232,14 @@ async function seedDefaults() {
   }
 }
 
+// --- Routes ---
+
+// Health check (does NOT require API key)
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Names
 app.get("/names", async (req, res, next) => {
   try {
     const rows = await dbAll("SELECT id, name FROM names ORDER BY name ASC");
@@ -276,6 +312,7 @@ app.delete("/names/:id", async (req, res, next) => {
   }
 });
 
+// Special days
 app.get("/special-days", async (req, res, next) => {
   try {
     const rows = await dbAll(
@@ -367,11 +404,13 @@ app.delete("/special-days/:id", async (req, res, next) => {
   }
 });
 
+// Submissions
 app.get("/submissions", async (req, res, next) => {
   try {
     const { monthKey, name } = req.query;
     const conditions = [];
     const params = [];
+
     if (monthKey) {
       conditions.push("monthKey = ?");
       params.push(monthKey);
@@ -380,9 +419,11 @@ app.get("/submissions", async (req, res, next) => {
       conditions.push("name = ?");
       params.push(name);
     }
+
     const whereClause = conditions.length
       ? `WHERE ${conditions.join(" AND ")}`
       : "";
+
     const rows = await dbAll(
       `SELECT id, name, date, monthKey, shiftType, start, end FROM submissions ${whereClause} ORDER BY date ASC`,
       params
@@ -398,6 +439,7 @@ app.post("/submissions", async (req, res, next) => {
   const name = String(payload.name || "").trim();
   const monthKey = String(payload.monthKey || "").trim();
   const entries = Array.isArray(payload.entries) ? payload.entries : [];
+
   if (!name || !monthKey) {
     res.status(400).json({ error: "Name and monthKey are required" });
     return;
@@ -406,27 +448,35 @@ app.post("/submissions", async (req, res, next) => {
     res.status(400).json({ error: "Entries are required" });
     return;
   }
+
   let inTransaction = false;
+
   try {
     await dbRun("BEGIN TRANSACTION");
     inTransaction = true;
+
     await dbRun("DELETE FROM submissions WHERE name = ? AND monthKey = ?", [
       name,
       monthKey,
     ]);
+
     const createdEntries = [];
+
     for (const entry of entries) {
       const date = String(entry.date || "").trim();
       const shiftType = String(entry.shiftType || "").trim();
       const start = entry.start ?? null;
       const end = entry.end ?? null;
+
       if (!date || !shiftType) {
         throw new Error("Invalid entry");
       }
+
       const result = await dbRun(
         "INSERT INTO submissions (name, date, monthKey, shiftType, start, end) VALUES (?, ?, ?, ?, ?, ?)",
         [name, date, monthKey, shiftType, start, end]
       );
+
       createdEntries.push({
         id: result.lastID,
         name,
@@ -437,8 +487,10 @@ app.post("/submissions", async (req, res, next) => {
         end,
       });
     }
+
     await dbRun("COMMIT");
     inTransaction = false;
+
     res.status(201).json(createdEntries);
   } catch (error) {
     if (inTransaction) {
@@ -452,6 +504,8 @@ app.post("/submissions", async (req, res, next) => {
   }
 });
 
+// --- Error handler ---
+
 app.use((err, req, res, next) => {
   console.error("API error", err);
   if (err.message === "Not allowed by CORS") {
@@ -460,6 +514,8 @@ app.use((err, req, res, next) => {
   }
   res.status(500).json({ error: "Internal Server Error" });
 });
+
+// --- Bootstrap ---
 
 async function bootstrap() {
   try {
