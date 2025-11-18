@@ -1,5 +1,5 @@
 services:
-  - type: static
+  - type: web
     name: student-plaza-pa-shift-system
     buildCommand: ""
     publishPath: .
