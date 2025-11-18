@@ -7,16 +7,19 @@ const SHIFT_TEMPLATES = {
 const MORNING_RANGE = { start: "10:00", end: "13:00" };
 const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
-const API_DEFAULT_BASE_URL = "http://localhost:3001";
-const API_DEFAULT_ERROR_MESSAGE =
-  "サーバーとの通信に失敗しました。時間をおいて再度お試しください。";
-const apiBaseUrl =
-  getMetaContent("pa-shift-api-base-url") ||
-  window.PA_SHIFT_API_BASE_URL ||
-  API_DEFAULT_BASE_URL;
-const apiKey =
-  getMetaContent("pa-shift-api-key") || window.PA_SHIFT_API_KEY || "dev-api-key";
-const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, "");
+const LOCAL_STORAGE_KEYS = {
+  names: "paShiftNames",
+  specialDays: "paShiftSpecialDays",
+  submissions: "paShiftSubmissions",
+};
+const ID_COUNTER_KEYS = {
+  names: "paShiftNamesNextId",
+  specialDays: "paShiftSpecialDaysNextId",
+};
+const STORAGE_ERROR_MESSAGE =
+  "ブラウザに保存できませんでした。ストレージ設定を確認してください。";
+const storageBackend = createStorageBackend();
+const isEphemeralStorage = storageBackend.type !== "localStorage";
 
 let submissionEntries = [];
 let holidayMap = {};
@@ -52,53 +55,105 @@ const paNameList = document.getElementById("paNameList");
 
 const template = document.getElementById("shiftRowTemplate");
 
-function getMetaContent(name) {
-  const meta = document.querySelector(`meta[name="${name}"]`);
-  return meta?.content?.trim() || "";
+function createStorageBackend() {
+  try {
+    const storage = window.localStorage;
+    const testKey = "__pa_shift_storage_test__";
+    storage.setItem(testKey, "ok");
+    storage.removeItem(testKey);
+    return {
+      type: "localStorage",
+      getItem: (key) => storage.getItem(key),
+      setItem: (key, value) => storage.setItem(key, value),
+      removeItem: (key) => storage.removeItem(key),
+    };
+  } catch (error) {
+    console.warn(
+      "localStorage is unavailable. Falling back to in-memory storage.",
+      error
+    );
+    const memoryStore = {};
+    return {
+      type: "memory",
+      getItem: (key) =>
+        Object.prototype.hasOwnProperty.call(memoryStore, key)
+          ? memoryStore[key]
+          : null,
+      setItem: (key, value) => {
+        memoryStore[key] = value;
+      },
+      removeItem: (key) => {
+        delete memoryStore[key];
+      },
+    };
+  }
 }
 
-function buildApiUrl(path) {
-  if (!path.startsWith("/")) {
-    return `${normalizedApiBaseUrl}/${path}`;
-  }
-  return `${normalizedApiBaseUrl}${path}`;
-}
-
-async function apiRequest(path, options = {}) {
-  const headers = {
-    "x-api-key": apiKey,
-    ...(options.headers || {}),
-  };
-  const hasBody = options.body && !(options.body instanceof FormData);
-  if (hasBody && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-  const response = await fetch(buildApiUrl(path), {
-    ...options,
-    headers,
-  });
-  if (!response.ok) {
-    let message = `${API_DEFAULT_ERROR_MESSAGE} (status: ${response.status})`;
-    try {
-      const data = await response.json();
-      if (data?.error) {
-        message = data.error;
-      }
-    } catch (error) {
-      // ignore JSON parse errors
-    }
-    throw new Error(message);
-  }
-  if (response.status === 204) {
+function storageGetItem(key) {
+  try {
+    return storageBackend.getItem(key);
+  } catch (error) {
+    console.warn("Failed to read storage", error);
     return null;
   }
-  return response.json();
+}
+
+function storageSetItem(key, value) {
+  try {
+    storageBackend.setItem(key, value);
+  } catch (error) {
+    console.error("Failed to write storage", error);
+    throw new Error(STORAGE_ERROR_MESSAGE);
+  }
+}
+
+function readStorageArray(key, fallback = []) {
+  const raw = storageGetItem(key);
+  if (!raw) {
+    return fallback;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch (error) {
+    console.warn("Failed to parse stored data", error);
+    return fallback;
+  }
+}
+
+function writeStorageArray(key, value) {
+  storageSetItem(key, JSON.stringify(value));
+}
+
+function getNextStorageId(type) {
+  const key = ID_COUNTER_KEYS[type];
+  if (!key) {
+    return Date.now();
+  }
+  const current = Number(storageGetItem(key)) || 1;
+  const nextValue = current + 1;
+  storageSetItem(key, String(nextValue));
+  return current;
+}
+
+function syncStorageCounter(type, items) {
+  const key = ID_COUNTER_KEYS[type];
+  if (!key) {
+    return;
+  }
+  const maxId = items.reduce((max, entry) => {
+    const value = Number(entry.id);
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+  const current = Number(storageGetItem(key)) || 1;
+  const nextValue = Math.max(current, maxId + 1);
+  storageSetItem(key, String(nextValue));
 }
 
 init().catch((error) => {
   console.error("Failed to initialize application", error);
   if (formStatus) {
-    formStatus.textContent = API_DEFAULT_ERROR_MESSAGE;
+    formStatus.textContent = STORAGE_ERROR_MESSAGE;
     formStatus.style.color = "#b42318";
   }
 });
@@ -115,6 +170,11 @@ async function init() {
   await initializeSpecialDays();
   await refreshSubmissions();
   renderCalendar();
+  if (isEphemeralStorage && formStatus) {
+    formStatus.textContent =
+      "注意: このブラウザではデータが一時的にしか保存されません。";
+    formStatus.style.color = "#b54708";
+  }
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
   studentNameSelect.addEventListener("change", renderCalendar);
@@ -154,14 +214,22 @@ async function initializePaNames() {
 }
 
 async function refreshPaNames() {
-  try {
-    const response = await apiRequest("/names", { method: "GET" });
-    paNames = Array.isArray(response) ? response : [];
-  } catch (error) {
-    console.error("Failed to load names", error);
-    paNames = [];
-    updatePaNameStatus(error.message, "#b42318");
-  }
+  const stored = readStorageArray(LOCAL_STORAGE_KEYS.names);
+  paNames = stored
+    .map((entry, index) => {
+      const id = Number(entry.id);
+      return {
+        id: Number.isFinite(id) ? id : index + 1,
+        name: entry.name?.trim() || "",
+      };
+    })
+    .filter((entry) => Boolean(entry.name));
+  paNames.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  syncStorageCounter("names", paNames);
+}
+
+function persistPaNames() {
+  writeStorageArray(LOCAL_STORAGE_KEYS.names, paNames);
 }
 
 function populateNameSelects() {
@@ -352,10 +420,7 @@ async function handleSubmit(event) {
 
   const monthKey = entries[0]?.monthKey;
   try {
-    await apiRequest("/submissions", {
-      method: "POST",
-      body: JSON.stringify({ name, monthKey, entries }),
-    });
+    saveSubmissionEntries(name, monthKey, entries);
     formStatus.textContent = "提出しました";
     formStatus.style.color = "#0f7b6c";
     await refreshSubmissions();
@@ -363,7 +428,7 @@ async function handleSubmit(event) {
     renderAdminTable();
   } catch (error) {
     console.error("Failed to submit shifts", error);
-    const message = error?.message || API_DEFAULT_ERROR_MESSAGE;
+    const message = error?.message || STORAGE_ERROR_MESSAGE;
     formStatus.textContent = message;
     formStatus.style.color = "#b42318";
     window.alert(message);
@@ -427,17 +492,28 @@ function collectEntries() {
 }
 
 async function refreshSubmissions() {
-  try {
-    const response = await apiRequest("/submissions", { method: "GET" });
-    submissionEntries = Array.isArray(response) ? response : [];
-  } catch (error) {
-    console.error("Failed to load submissions", error);
-    submissionEntries = [];
-    if (formStatus) {
-      formStatus.textContent = error.message;
-      formStatus.style.color = "#b42318";
-    }
-  }
+  const stored = readStorageArray(LOCAL_STORAGE_KEYS.submissions);
+  submissionEntries = stored.filter((entry) =>
+    Boolean(
+      entry &&
+        typeof entry.name === "string" &&
+        typeof entry.date === "string" &&
+        typeof entry.monthKey === "string" &&
+        typeof entry.shiftType === "string"
+    )
+  );
+}
+
+function saveSubmissionEntries(name, monthKey, entries) {
+  submissionEntries = submissionEntries.filter(
+    (entry) => !(entry.name === name && entry.monthKey === monthKey)
+  );
+  submissionEntries.push(...entries);
+  persistSubmissions();
+}
+
+function persistSubmissions() {
+  writeStorageArray(LOCAL_STORAGE_KEYS.submissions, submissionEntries);
 }
 
 function renderAdminTable() {
@@ -964,15 +1040,23 @@ async function initializeSpecialDays() {
 }
 
 async function refreshSpecialDays() {
-  try {
-    const response = await apiRequest("/special-days", { method: "GET" });
-    specialDayEntries = Array.isArray(response) ? response : [];
-  } catch (error) {
-    console.error("Failed to load special days", error);
-    specialDayEntries = [];
-    updateSpecialDayStatus(error.message, "#b42318");
-  }
+  const stored = readStorageArray(LOCAL_STORAGE_KEYS.specialDays);
+  specialDayEntries = stored
+    .map((entry, index) => {
+      const id = Number(entry.id);
+      return {
+        id: Number.isFinite(id) ? id : index + 1,
+        date: entry.date,
+        note: entry.note?.trim() || "",
+      };
+    })
+    .filter((entry) => Boolean(entry.date && entry.note));
+  syncStorageCounter("specialDays", specialDayEntries);
   rebuildSpecialDayMap();
+}
+
+function persistSpecialDays() {
+  writeStorageArray(LOCAL_STORAGE_KEYS.specialDays, specialDayEntries);
 }
 
 function rebuildSpecialDayMap() {
@@ -1030,16 +1114,12 @@ async function handleSpecialDaySubmit(event) {
   const existing = specialDayEntries.find((entry) => entry.date === date);
   try {
     if (existing) {
-      await apiRequest(`/special-days/${existing.id}`, {
-        method: "PUT",
-        body: JSON.stringify({ date, note }),
-      });
+      existing.note = note;
     } else {
-      await apiRequest("/special-days", {
-        method: "POST",
-        body: JSON.stringify({ date, note }),
-      });
+      const id = getNextStorageId("specialDays");
+      specialDayEntries.push({ id, date, note });
     }
+    persistSpecialDays();
     await refreshSpecialDays();
     renderSpecialDayList();
     renderCalendar();
@@ -1048,7 +1128,7 @@ async function handleSpecialDaySubmit(event) {
     specialDayForm.reset();
   } catch (error) {
     console.error("Failed to save special day", error);
-    updateSpecialDayStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+    updateSpecialDayStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
   }
 }
 
@@ -1058,7 +1138,10 @@ async function handleSpecialDayListClick(event) {
   const { id } = button.dataset;
   if (!id) return;
   try {
-    await apiRequest(`/special-days/${id}`, { method: "DELETE" });
+    specialDayEntries = specialDayEntries.filter(
+      (entry) => String(entry.id) !== String(id)
+    );
+    persistSpecialDays();
     await refreshSpecialDays();
     renderSpecialDayList();
     renderCalendar();
@@ -1066,7 +1149,7 @@ async function handleSpecialDayListClick(event) {
     updateSpecialDayStatus("削除しました");
   } catch (error) {
     console.error("Failed to remove special day", error);
-    updateSpecialDayStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+    updateSpecialDayStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
   }
 }
 
@@ -1132,10 +1215,9 @@ async function handlePaNameSubmit(event) {
     return;
   }
   try {
-    await apiRequest("/names", {
-      method: "POST",
-      body: JSON.stringify({ name: newName }),
-    });
+    const id = getNextStorageId("names");
+    paNames = [...paNames, { id, name: newName }];
+    persistPaNames();
     await refreshPaNames();
     populateNameSelects();
     renderPaNameList();
@@ -1145,7 +1227,7 @@ async function handlePaNameSubmit(event) {
     renderAdminTable();
   } catch (error) {
     console.error("Failed to add PA name", error);
-    updatePaNameStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+    updatePaNameStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
   }
 }
 
@@ -1167,7 +1249,8 @@ async function handlePaNameListClick(event) {
 
   try {
     if (action === "remove") {
-      await apiRequest(`/names/${id}`, { method: "DELETE" });
+      paNames = paNames.filter((entry) => entry.id !== id);
+      persistPaNames();
       await refreshPaNames();
       populateNameSelects();
       renderPaNameList();
@@ -1190,10 +1273,8 @@ async function handlePaNameListClick(event) {
         updatePaNameStatus("同じ名前が既にあります", "#b42318");
         return;
       }
-      await apiRequest(`/names/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ name: updated }),
-      });
+      target.name = updated;
+      persistPaNames();
       await refreshPaNames();
       populateNameSelects();
       renderPaNameList();
@@ -1203,7 +1284,7 @@ async function handlePaNameListClick(event) {
     }
   } catch (error) {
     console.error("Failed to update PA name", error);
-    updatePaNameStatus(error.message || API_DEFAULT_ERROR_MESSAGE, "#b42318");
+    updatePaNameStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
   }
 }
 
