@@ -9,7 +9,14 @@ const storage = createStorage(DATA_FILE);
 await storage.ensureInitialized();
 
 const app = express();
-app.use(cors({ origin: "https://senamatsuda.github.io" }));
+
+// --- ここを修正 ---
+// すべてのオリジンからのアクセスを許可
+app.use(cors());
+// プリフライト(OPTIONS)にも CORS ヘッダを付ける
+app.options("*", cors());
+// -----------------
+
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("tiny"));
 
@@ -60,5 +67,3 @@ function buildCounts(payload) {
     submissions: payload.submissions?.length || 0,
   };
 }
-
-// Trigger new deployment
