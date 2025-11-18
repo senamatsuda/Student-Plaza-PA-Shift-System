@@ -20,6 +20,10 @@ const STORAGE_ERROR_MESSAGE =
   "ブラウザに保存できませんでした。ストレージ設定を確認してください。";
 const storageBackend = createStorageBackend();
 const isEphemeralStorage = storageBackend.type !== "localStorage";
+const remoteSyncClient = createRemoteSyncClient();
+const remoteSyncState = { lastPull: null, lastPush: null };
+let remotePushTimeoutId = null;
+let remotePushInFlight = false;
 
 let submissionEntries = [];
 let holidayMap = {};
@@ -52,6 +56,7 @@ const paNameForm = document.getElementById("paNameForm");
 const paNameInput = document.getElementById("paNameInput");
 const paNameStatus = document.getElementById("paNameStatus");
 const paNameList = document.getElementById("paNameList");
+const syncStatus = document.getElementById("syncStatus");
 
 const template = document.getElementById("shiftRowTemplate");
 
@@ -159,6 +164,15 @@ init().catch((error) => {
 });
 
 async function init() {
+  if (remoteSyncClient) {
+    await syncRemoteDataFromServer();
+  } else {
+    updateSyncStatus(
+      "リモートAPIが設定されていないため、このブラウザ内にのみデータが保存されます。",
+      "warning"
+    );
+  }
+
   await initializePaNames();
   const now = new Date();
   const currentMonthValue = formatMonthInput(now);
@@ -204,6 +218,8 @@ async function init() {
   if (paNameList) {
     paNameList.addEventListener("click", handlePaNameListClick);
   }
+  window.addEventListener("online", handleOnlineStatusChange);
+  window.addEventListener("offline", handleOfflineStatusChange);
   renderAdminTable();
 }
 
@@ -230,6 +246,7 @@ async function refreshPaNames() {
 
 function persistPaNames() {
   writeStorageArray(LOCAL_STORAGE_KEYS.names, paNames);
+  scheduleRemotePush();
 }
 
 function populateNameSelects() {
@@ -514,6 +531,7 @@ function saveSubmissionEntries(name, monthKey, entries) {
 
 function persistSubmissions() {
   writeStorageArray(LOCAL_STORAGE_KEYS.submissions, submissionEntries);
+  scheduleRemotePush();
 }
 
 function renderAdminTable() {
@@ -1057,6 +1075,7 @@ async function refreshSpecialDays() {
 
 function persistSpecialDays() {
   writeStorageArray(LOCAL_STORAGE_KEYS.specialDays, specialDayEntries);
+  scheduleRemotePush();
 }
 
 function rebuildSpecialDayMap() {
@@ -1292,6 +1311,209 @@ function updatePaNameStatus(message, color = "#0f7b6c") {
   if (!paNameStatus) return;
   paNameStatus.textContent = message;
   paNameStatus.style.color = color;
+}
+
+function handleOnlineStatusChange() {
+  if (!remoteSyncClient) return;
+  updateSyncStatus("オンラインになりました。最新の変更を保存します。");
+  scheduleRemotePush();
+}
+
+function handleOfflineStatusChange() {
+  if (!remoteSyncClient) return;
+  updateSyncStatus(
+    "オフラインのため、接続が回復するまでブラウザ内にのみ保存されます。",
+    "warning"
+  );
+}
+
+async function syncRemoteDataFromServer() {
+  if (!remoteSyncClient) return;
+  updateSyncStatus("Render ストレージと同期しています...");
+  try {
+    const dataset = await remoteSyncClient.pull();
+    if (dataset) {
+      applyRemoteDataset(dataset);
+    }
+    remoteSyncState.lastPull = new Date();
+    updateSyncStatus(
+      `Render と同期済み (${formatTimestamp(remoteSyncState.lastPull)})`
+    );
+  } catch (error) {
+    console.error("Failed to fetch remote data", error);
+    updateSyncStatus(
+      "リモートAPIに接続できません。接続が回復するまでローカル保存で動作します。",
+      "error"
+    );
+  }
+}
+
+function scheduleRemotePush() {
+  if (!remoteSyncClient) return;
+  if (remotePushTimeoutId) {
+    clearTimeout(remotePushTimeoutId);
+  }
+  remotePushTimeoutId = window.setTimeout(() => {
+    remotePushTimeoutId = null;
+    pushRemoteData().catch((error) => {
+      console.error("Failed to sync remote data", error);
+    });
+  }, 800);
+}
+
+async function pushRemoteData() {
+  if (!remoteSyncClient || remotePushInFlight) {
+    return;
+  }
+  remotePushInFlight = true;
+  updateSyncStatus("Render に保存しています...");
+  try {
+    await remoteSyncClient.push(collectLocalDataset());
+    remoteSyncState.lastPush = new Date();
+    updateSyncStatus(
+      `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
+    );
+  } catch (error) {
+    updateSyncStatus(
+      "リモートへの保存に失敗しました。ネットワーク状態を確認してください。",
+      "error"
+    );
+    throw error;
+  } finally {
+    remotePushInFlight = false;
+  }
+}
+
+function collectLocalDataset() {
+  return {
+    names: paNames,
+    specialDays: specialDayEntries,
+    submissions: submissionEntries,
+    counters: {
+      namesNextId: getStorageCounterValue("names"),
+      specialDaysNextId: getStorageCounterValue("specialDays"),
+    },
+  };
+}
+
+function applyRemoteDataset(dataset) {
+  try {
+    if (Array.isArray(dataset.names)) {
+      writeStorageArray(LOCAL_STORAGE_KEYS.names, dataset.names);
+    }
+    if (Array.isArray(dataset.specialDays)) {
+      writeStorageArray(LOCAL_STORAGE_KEYS.specialDays, dataset.specialDays);
+    }
+    if (Array.isArray(dataset.submissions)) {
+      writeStorageArray(LOCAL_STORAGE_KEYS.submissions, dataset.submissions);
+    }
+    if (dataset.counters) {
+      if (dataset.counters.namesNextId != null) {
+        storageSetItem(
+          ID_COUNTER_KEYS.names,
+          String(dataset.counters.namesNextId)
+        );
+      }
+      if (dataset.counters.specialDaysNextId != null) {
+        storageSetItem(
+          ID_COUNTER_KEYS.specialDays,
+          String(dataset.counters.specialDaysNextId)
+        );
+      }
+    }
+  } catch (error) {
+    console.error("Failed to apply remote dataset", error);
+  }
+}
+
+function getStorageCounterValue(type) {
+  const key = ID_COUNTER_KEYS[type];
+  if (!key) return 1;
+  const stored = Number(storageGetItem(key));
+  if (Number.isFinite(stored) && stored > 0) {
+    return stored;
+  }
+  let list = [];
+  if (type === "names") {
+    list = paNames;
+  } else if (type === "specialDays") {
+    list = specialDayEntries;
+  }
+  const maxId = list.reduce((max, entry) => {
+    const value = Number(entry.id);
+    return Number.isFinite(value) ? Math.max(max, value) : max;
+  }, 0);
+  return maxId + 1 || 1;
+}
+
+function updateSyncStatus(message, variant = "info") {
+  if (!syncStatus) return;
+  syncStatus.textContent = message;
+  syncStatus.classList.remove("is-warning", "is-error");
+  if (variant === "warning") {
+    syncStatus.classList.add("is-warning");
+  } else if (variant === "error") {
+    syncStatus.classList.add("is-error");
+  }
+}
+
+function formatTimestamp(date) {
+  if (!date) return "";
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}/${month}/${day} ${hours}:${minutes}`;
+}
+
+function createRemoteSyncClient() {
+  const config = window.PA_SHIFT_CONFIG || {};
+  const baseUrl = (config.apiBaseUrl || "").trim();
+  if (!baseUrl) {
+    return null;
+  }
+  const timeout = Number(config.apiTimeoutMs) || 10000;
+  const normalizedBase = baseUrl.endsWith("/")
+    ? baseUrl.slice(0, -1)
+    : baseUrl;
+
+  async function request(path, options = {}) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeout);
+    try {
+      const headers = options.body
+        ? { "Content-Type": "application/json", ...(options.headers || {}) }
+        : options.headers;
+      const response = await fetch(`${normalizedBase}${path}`, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || response.statusText || "Request failed");
+      }
+      if (response.status === 204) {
+        return null;
+      }
+      return await response.json();
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return {
+    async pull() {
+      return request("/api/data");
+    },
+    async push(payload) {
+      return request("/api/data", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+    },
+  };
 }
 
 function getHolidayName(dateKey) {

@@ -23,6 +23,12 @@
     </header>
 
     <main class="container">
+      <div
+        id="syncStatus"
+        class="sync-status"
+        role="status"
+        aria-live="polite"
+      ></div>
       <div class="tabs" role="tablist" aria-label="ビュー切替">
         <div class="tab-controls">
           <button
@@ -261,6 +267,7 @@
       </div>
     </template>
 
+    <script src="config.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
     <script src="script.js" type="module"></script>
   </body>

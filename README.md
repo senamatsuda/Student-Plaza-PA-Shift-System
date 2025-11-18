@@ -1,8 +1,8 @@
 # 学生プラザ3F 留学交流グループ シフト調整システム
 
 学生 (PA) のシフト提出と管理者向け集計を 1 つの静的アプリで完結できるツールです。
-現在は **ブラウザのローカル環境だけで動作** し、外部の独自サーバーやデータベースとは通信しません。
-すべてのデータは閲覧中のブラウザの LocalStorage に保存されます。
+v2 では Render (無料 Web Service + 永続ディスク) に配置したシンプルな JSON API と同期でき、GitHub Pages 等の静的ホスティングから
+でも共通データを扱えます。API を設定しない場合は従来通り、閲覧中ブラウザの LocalStorage のみで動作します。
 
 ## 主な画面
 
@@ -21,37 +21,49 @@
 
 > ⚠️ LocalStorage が利用できない環境 (シークレットウィンドウなど) の場合は、ページを閉じるとデータが失われます。
 
-## Render (無料プラン) で公開する手順
+## GitHub Pages + Render API で運用する
 
-静的サイトとして構成されているため、Render の無料 Static Site サービスでそのまま公開できます。`render.yaml` をリポジトリに含めてあるので、Blueprint からのデプロイが可能です。
+1. **フロントエンドを GitHub Pages へ配置**
+   - `main` ブランチを Pages (例: `https://<user>.github.io/Student-Plaza-PA-Shift-System/`) で公開します。
+   - UI 側の更新は `index.html`, `script.js`, `styles.css`, `config.js` を編集して push するだけです。
+2. **Render 無料枠に API をデプロイ**
+   - Render で「New +」→「Blueprint」を選択し、このリポジトリを指定します。
+   - `render.yaml` により
+     - `student-plaza-pa-shift-api` (Web Service, Node 18, 永続ディスク `/data` 付き)
+     - `student-plaza-pa-shift-system` (Static Site: GitHub Pages を使う場合は停止可)
+     の 2 サービスが作成されます。
+   - API サービスには `DATA_FILE=/data/data.json` が設定され、Render の永続ディスクに JSON が保存されます。
+3. **API の URL をフロントに設定**
+   - Render で払い出された API URL (例: `https://student-plaza-pa-shift-api.onrender.com`) を `config.js` の `apiBaseUrl` に入力し、
+     GitHub に push します。
+   - ページを再読み込みすると上部の同期ステータスが「Render と同期済み」になります。失敗した場合は警告/エラー表示になります。
+4. **更新と再デプロイ**
+   - main ブランチへ push すると GitHub Pages と Render API が自動で再デプロイされ、ディスク上のデータは保持されます。
 
-1. **GitHub にリポジトリを用意**
-   - このリポジトリを自身の GitHub アカウントへ push します (Public でも Private でも可)。
-2. **Render アカウントを作成 / ログイン**
-   - https://render.com にアクセスし、無料アカウントを作成します。
-3. **Blueprint (Infrastructure as Code) でデプロイ**
-   - Render ダッシュボードで「New +」→「Blueprint」を選択し、GitHub と連携します。
-   - 対象リポジトリを選択すると `render.yaml` が検出され、Static Site の設定が自動入力されます。
-   - `name` は Render 上のサービス名です。必要に応じて変更してください。
-   - Build Command は空、Publish Directory はリポジトリルート (`.`) のままで問題ありません。
-4. **デプロイを開始**
-   - 「Apply」→「Deploy」を押すとビルドが始まり、完了後に自動で https://<your-service>.onrender.com が割り当てられます。
-   - サイトが 404 になる場合はデプロイ完了を待つか、`render.yaml` の設定を再確認してください。
-5. **更新方法**
-   - main ブランチ (もしくは Render で指定したブランチ) に push すると、自動で再デプロイされます。
-   - ローカルでの挙動と同じく、各利用者の LocalStorage にのみデータが保存されるため、データ共有が必要な場合は別途仕組みを用意してください。
+> Render 無料 Web Service は 15 分アクセスがないとスリープします。スリープ中は同期ステータスがオレンジ/赤になりますが、API が
+> 起動すると自動で緑に戻ります。
 
-> Render 無料枠の Static Site は、30 分間アクセスがないとスリープし次回アクセス時に数十秒かけて再起動します。待機時間を減らしたい場合は有料プランの利用を検討してください。
+### API をローカルで確認したい場合
+
+```
+npm --prefix api install   # ネットワーク制限がある環境では失敗することがあります
+DATA_FILE=./api/dev-data.json npm --prefix api start
+```
+
+別ターミナルで `python -m http.server 8000` などを実行してフロントエンドを開き、`config.js` の `apiBaseUrl` を
+`http://localhost:10000` に変更してください。
 
 ## データの保存について
 
-| 種別 | 保存先 LocalStorage キー | 備考 |
+| 種別 | 保存先 | 備考 |
 | --- | --- | --- |
-| PA 名簿 | `paShiftNames` | ID と名前を配列で保存します |
-| 特別日 | `paShiftSpecialDays` | `date` と `note` を保存します |
-| シフト提出 | `paShiftSubmissions` | 各日付の `name` / `shiftType` / 時刻を保存します |
+| PA 名簿 | LocalStorage: `paShiftNames` / Render API | API 設定時は Render にも同期されます |
+| 特別日 | LocalStorage: `paShiftSpecialDays` / Render API | 授業振替日などのメモを保存 |
+| シフト提出 | LocalStorage: `paShiftSubmissions` / Render API | 午前/午後/その他の時間帯を記録 |
 
-ブラウザに保存されたデータをリセットしたい場合は、ブラウザの開発者ツールや設定から該当サイトの LocalStorage を削除してください。
+- `config.js` の `apiBaseUrl` を設定すると、起動時に Render API から JSON を取得し、以降の更新も数秒以内に同期されます。
+- API が未設定、またはネットワーク障害がある場合は同期ステータスが警告/エラー表示となり、ブラウザ内のみで保存されます。
+- LocalStorage の内容を完全に削除したい場合はブラウザの開発者ツール等から対象サイトのデータをクリアしてください。
 
 ## 開発メモ
 

@@ -8,3 +8,19 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
+  - type: web
+    name: student-plaza-pa-shift-api
+    env: node
+    plan: free
+    buildCommand: npm --prefix api install
+    startCommand: npm --prefix api start
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "18"
+      - key: DATA_FILE
+        value: /data/data.json
+    disk:
+      name: pa-shift-data
+      mountPath: /data
+      sizeGB: 1
