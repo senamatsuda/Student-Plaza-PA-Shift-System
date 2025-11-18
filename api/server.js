@@ -10,10 +10,53 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.API_KEY || "dev-api-key";
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+function normalizeOrigin(entry) {
+  if (!entry) {
+    return "";
+  }
+  if (entry === "*") {
+    return "*";
+  }
+  try {
+    const parsed = new URL(entry);
+    return parsed.origin;
+  } catch (error) {
+    return entry.replace(/\/$/, "");
+  }
+}
+
+const allowedOrigins = Array.from(
+  new Set(
+    (process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean)
+      .map(normalizeOrigin)
+      .filter(Boolean)
+  )
+);
+const allowAllOrigins = allowedOrigins.includes("*");
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    if (
+      allowAllOrigins ||
+      !allowedOrigins.length ||
+      allowedOrigins.includes(origin)
+    ) {
+      callback(null, true);
+    } else {
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "x-api-key"],
+  maxAge: 600,
+};
 
 const persistentDir =
   process.env.DATABASE_DIR ||
@@ -27,29 +70,13 @@ fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 const db = new sqlite3.Database(dbFile);
 console.log(`Using SQLite file at ${dbFile}`);
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-      if (!allowedOrigins.length || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-api-key"],
-    maxAge: 600,
-  })
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") {
-    next();
+    res.sendStatus(204);
     return;
   }
   const incomingKey = req.header("x-api-key");
