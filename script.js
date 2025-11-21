@@ -41,6 +41,7 @@ const form = document.getElementById("shiftForm");
 const formStatus = document.getElementById("formStatus");
 const studentNameSelect = document.getElementById("studentName");
 const adminTableWrapper = document.getElementById("adminTableWrapper");
+const autoArrangeButton = document.getElementById("autoArrangeShifts");
 const adminRefreshButton = document.getElementById("refreshAdmin");
 const adminNameFilter = document.getElementById("adminNameFilter");
 const adminMonthInput = document.getElementById("adminMonth");
@@ -267,6 +268,9 @@ async function init() {
   form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
   studentNameSelect.addEventListener("change", renderCalendar);
+  if (autoArrangeButton) {
+    autoArrangeButton.addEventListener("click", handleAutoArrange);
+  }
   if (adminRefreshButton) {
     adminRefreshButton.addEventListener("click", handleAdminRefresh);
   }
@@ -721,6 +725,100 @@ function renderAdminTable() {
   adminTableWrapper.appendChild(table);
 }
 
+async function handleAutoArrange() {
+  if (!autoArrangeButton) return;
+
+  const { year, month } = parseMonthInput(
+    adminMonthInput.value || monthPicker.value
+  );
+  const monthKey = formatMonthKey(year, month);
+  const weekdays = getWeekdays(year, month);
+
+  if (!weekdays.length) {
+    window.alert("対象月の平日が見つかりません");
+    return;
+  }
+
+  const originalLabel = autoArrangeButton.textContent;
+  autoArrangeButton.disabled = true;
+  autoArrangeButton.textContent = "自動作成中...";
+
+  try {
+    await refreshSubmissions();
+    const { slotEntries, availabilityCount } = buildSlotEntriesForMonth(
+      monthKey,
+      weekdays
+    );
+
+    const hasCandidates = slotEntries.some((slot) => slot.items.length);
+    if (!hasCandidates) {
+      window.alert("提出データがないため自動で組めませんでした");
+      return;
+    }
+
+    const autoConfirmNames = new Set(
+      Object.entries(availabilityCount)
+        .filter(([, count]) => count > 0 && count <= 3)
+        .map(([name]) => name)
+    );
+
+    confirmedShiftMap[monthKey] = {};
+    const slotConfirmed = new Set();
+    const confirmedCounts = {};
+    const confirmItem = (item) => {
+      const entryKey = buildConfirmedEntryKey(item);
+      confirmedShiftMap[monthKey][entryKey] = true;
+      slotConfirmed.add(`${item.date}|${item.slot}`);
+      confirmedCounts[item.name] = (confirmedCounts[item.name] || 0) + 1;
+    };
+
+    slotEntries.forEach((slot) => {
+      slot.items.forEach((item) => {
+        if (autoConfirmNames.has(item.name)) {
+          confirmItem(item);
+        }
+      });
+    });
+
+    slotEntries.forEach((slot) => {
+      const slotKey = `${slot.dateKey}|${slot.slotKey}`;
+      if (slotConfirmed.has(slotKey)) {
+        return;
+      }
+      const candidates = slot.items.filter(
+        (item) => !autoConfirmNames.has(item.name)
+      );
+      if (!candidates.length) {
+        return;
+      }
+
+      candidates.sort((a, b) => {
+        const countA = confirmedCounts[a.name] || 0;
+        const countB = confirmedCounts[b.name] || 0;
+        if (countA !== countB) return countA - countB;
+        const availabilityA = availabilityCount[a.name] || 0;
+        const availabilityB = availabilityCount[b.name] || 0;
+        if (availabilityA !== availabilityB) return availabilityA - availabilityB;
+        return a.name.localeCompare(b.name, "ja");
+      });
+
+      confirmItem(candidates[0]);
+    });
+
+    persistConfirmedShiftMap();
+    renderAdminTable();
+    window.alert(
+      "自動でシフトを組みました。必要に応じてAdminページで調整してください。"
+    );
+  } catch (error) {
+    console.error("Failed to auto-arrange shifts", error);
+    window.alert("自動シフト組み立てに失敗しました。入力データを確認してください。");
+  } finally {
+    autoArrangeButton.disabled = false;
+    autoArrangeButton.textContent = originalLabel;
+  }
+}
+
 async function handleAdminRefresh() {
   if (!adminRefreshButton) {
     await refreshSubmissions();
@@ -757,6 +855,38 @@ function createEmptyEntryGroup() {
     other: [],
     unavailable: [],
   };
+}
+
+function buildSlotEntriesForMonth(monthKey, weekdays) {
+  const submissions = submissionEntries.filter((entry) =>
+    entry.monthKey === monthKey
+  );
+  const grouped = groupByDate(submissions);
+  const slotEntries = [];
+
+  weekdays.forEach((date) => {
+    const dateKey = formatDateKey(date);
+    const dayEntries = grouped[dateKey] ?? createEmptyEntryGroup();
+    slotEntries.push({
+      dateKey,
+      slotKey: "morning",
+      items: buildSlotItems(dayEntries, MORNING_RANGE, "morning"),
+    });
+    slotEntries.push({
+      dateKey,
+      slotKey: "afternoon",
+      items: buildSlotItems(dayEntries, AFTERNOON_RANGE, "afternoon"),
+    });
+  });
+
+  const availabilityCount = {};
+  slotEntries.forEach((slot) => {
+    slot.items.forEach((item) => {
+      availabilityCount[item.name] = (availabilityCount[item.name] || 0) + 1;
+    });
+  });
+
+  return { slotEntries, availabilityCount };
 }
 
 function buildSlotItems(entries, range, slotKey) {
