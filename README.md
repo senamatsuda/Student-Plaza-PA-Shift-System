@@ -49,7 +49,6 @@ Render の無料 Web Service に永続ディスクを付けて JSON を保存す
 
 - `render.yaml` で API サービス `student-plaza-pa-shift-api` に `/data` をマウントし、環境変数 `DATA_FILE=/data/data.json` を指定しています。JSON はこのディスクに書き込まれるため、再デプロイやスリープを経ても残ります (無料枠でもディスクは保持)。
 - API サーバーは起動時に `DATA_FILE` のパスを必ず初期化・読み書きするため、Render 側で追加設定をする必要はありません。
-  - 起動ログに `Cannot create data directory '/data'` などの権限エラーが出る場合は、Render ダッシュボードで永続ディスクが Web Service にアタッチされ、`/data` が書き込み可能になっているか確認してください。
 - フロントエンドの `config.js` に Render で払い出された API URL を設定すれば、ブラウザ LocalStorage と Render 上の JSON が自動同期されます。
 
 運用時のチェックポイント:
