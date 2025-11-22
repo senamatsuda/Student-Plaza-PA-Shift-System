@@ -17,7 +17,22 @@ export function createStorage(filePath) {
 
   async function ensureInitialized() {
     if (initialized) return;
-    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+    const directory = path.dirname(resolvedPath);
+    try {
+      await fs.mkdir(directory, { recursive: true });
+    } catch (error) {
+      if (error?.code === "EACCES") {
+        const hint = directory.startsWith("/data")
+          ? "Ensure the Render persistent disk is attached and writable."
+          : "Check file system permissions for the configured DATA_FILE path.";
+        const wrapped = new Error(
+          `Cannot create data directory '${directory}'. ${hint}`
+        );
+        wrapped.cause = error;
+        throw wrapped;
+      }
+      throw error;
+    }
     try {
       await fs.access(resolvedPath);
     } catch (error) {
