@@ -471,6 +471,18 @@ button:hover {
   border-radius: 12px;
 }
 
+.confirmed-summary {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.confirmed-summary__description {
+  color: #475569;
+  margin-top: 0.15rem;
+}
+
 .admin-table {
   width: 100%;
   border-collapse: collapse;
@@ -505,6 +517,15 @@ button:hover {
 .badge--holiday {
   background: var(--holiday-disabled);
   color: var(--holiday-text);
+}
+
+.admin-table--summary th,
+.admin-table--summary td {
+  text-align: center;
+}
+
+.admin-table--summary td:first-child {
+  text-align: left;
 }
 
 .admin-table tr.is-holiday {
