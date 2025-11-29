@@ -5,8 +5,9 @@ import { createStorage } from "./storage.js";
 
 const PORT = process.env.PORT || 10000;
 const DATA_FILE = process.env.DATA_FILE || "./api-data.json";
-const storage = createStorage(DATA_FILE);
-await storage.ensureInitialized();
+const FALLBACK_DATA_FILE = "./api-data.json";
+
+const storage = await initializeStorage(DATA_FILE, FALLBACK_DATA_FILE);
 
 const app = express();
 
@@ -59,6 +60,26 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`API server listening on port ${PORT}`);
 });
+
+async function initializeStorage(primaryPath, fallbackPath) {
+  const storage = createStorage(primaryPath);
+  try {
+    await storage.ensureInitialized();
+    return storage;
+  } catch (error) {
+    if (error.code === "EACCES" || error.code === "EPERM") {
+      const fallbackStorage = createStorage(fallbackPath);
+      await fallbackStorage.ensureInitialized();
+
+      console.warn(
+        `DATA_FILE path '${primaryPath}' is not writable. Falling back to '${fallbackPath}'.`
+      );
+      return fallbackStorage;
+    }
+
+    throw error;
+  }
+}
 
 function buildCounts(payload) {
   return {
