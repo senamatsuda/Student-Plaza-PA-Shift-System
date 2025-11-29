@@ -47,6 +47,14 @@
           >
             Admin
           </button>
+          <button
+            class="tab-button"
+            data-tab-target="aboutTab"
+            role="tab"
+            aria-selected="false"
+          >
+            システムに関して
+          </button>
         </div>
 
         <section
@@ -248,6 +256,28 @@
                 ></div>
               </div>
             </section>
+          </div>
+        </section>
+
+        <section
+          class="panel tab-panel"
+          id="aboutTab"
+          role="tabpanel"
+          aria-labelledby="aboutTabHeading"
+          aria-hidden="true"
+        >
+          <div class="panel__header">
+            <div>
+              <h2 id="aboutTabHeading">システムに関して</h2>
+              <p>このシフト調整システムに関する概要や連絡事項をまとめるページです。</p>
+            </div>
+          </div>
+
+          <div class="panel__content">
+            <p>TEXT</p>
+            <p>
+              ソースコード: <a href="https://github.com/senamatsuda/Student-Plaza-PA-Shift-System">https://github.com/senamatsuda/Student-Plaza-PA-Shift-System</a>
+            </p>
           </div>
         </section>
       </div>
