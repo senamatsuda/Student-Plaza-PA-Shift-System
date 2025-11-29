@@ -8,9 +8,19 @@ const MORNING_RANGE = { start: "10:00", end: "13:00" };
 const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
 const DEFAULT_PA_NAMES = [
-  { id: 1, name: "山田 太郎" },
-  { id: 2, name: "佐藤 花子" },
-  { id: 3, name: "鈴木 次郎" },
+  { id: 1, name: "森" },
+  { id: 2, name: "松田" },
+  { id: 3, name: "劉" },
+  { id: 4, name: "中野" },
+  { id: 5, name: "長谷川" },
+  { id: 6, name: "片山" },
+  { id: 7, name: "王" },
+  { id: 8, name: "李" },
+  { id: 9, name: "繆" },
+  { id: 10, name: "張" },
+  { id: 11, name: "黄" },
+  { id: 12, name: "鄭" },
+  { id: 13, name: "ショーン" },
 ];
 const LOCAL_STORAGE_KEYS = {
   names: "paShiftNames",
