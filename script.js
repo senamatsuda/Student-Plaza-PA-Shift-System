@@ -41,6 +41,9 @@ const form = document.getElementById("shiftForm");
 const formStatus = document.getElementById("formStatus");
 const studentNameSelect = document.getElementById("studentName");
 const adminTableWrapper = document.getElementById("adminTableWrapper");
+const confirmedSummaryWrapper = document.getElementById(
+  "confirmedSummaryWrapper"
+);
 const autoArrangeButton = document.getElementById("autoArrangeShifts");
 const adminRefreshButton = document.getElementById("refreshAdmin");
 const adminNameFilter = document.getElementById("adminNameFilter");
@@ -723,6 +726,86 @@ function renderAdminTable() {
 
   table.appendChild(tbody);
   adminTableWrapper.appendChild(table);
+
+  renderConfirmedSummaryTable();
+}
+
+function renderConfirmedSummaryTable() {
+  if (!confirmedSummaryWrapper) return;
+
+  const { year, month } = parseMonthInput(
+    adminMonthInput.value || monthPicker.value
+  );
+  const monthKey = formatMonthKey(year, month);
+  const summaryRows = buildConfirmedSummary(monthKey);
+
+  confirmedSummaryWrapper.innerHTML = "";
+
+  if (!summaryRows.length) {
+    confirmedSummaryWrapper.textContent = "確定済みのシフトがありません。";
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "admin-table admin-table--summary";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>名前</th>
+        <th>午前</th>
+        <th>午後</th>
+      </tr>
+    </thead>
+  `;
+
+  const tbody = document.createElement("tbody");
+  summaryRows.forEach((row) => {
+    const tr = document.createElement("tr");
+    const nameCell = document.createElement("td");
+    nameCell.textContent = row.name;
+    const morningCell = document.createElement("td");
+    morningCell.textContent = row.morning;
+    const afternoonCell = document.createElement("td");
+    afternoonCell.textContent = row.afternoon;
+    tr.appendChild(nameCell);
+    tr.appendChild(morningCell);
+    tr.appendChild(afternoonCell);
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  confirmedSummaryWrapper.appendChild(table);
+}
+
+function buildConfirmedSummary(monthKey) {
+  const entries = confirmedShiftMap[monthKey];
+  if (!entries) return [];
+
+  const counts = {};
+
+  Object.keys(entries).forEach((entryKey) => {
+    const parsed = parseConfirmedEntryKey(entryKey);
+    if (!parsed) return;
+    if (parsed.slot !== "morning" && parsed.slot !== "afternoon") return;
+    const targetName = parsed.name || "(名前未設定)";
+    if (!counts[targetName]) {
+      counts[targetName] = { name: targetName, morning: 0, afternoon: 0 };
+    }
+    counts[targetName][parsed.slot] += 1;
+  });
+
+  return Object.values(counts).sort((a, b) =>
+    a.name.localeCompare(b.name, "ja")
+  );
+}
+
+function parseConfirmedEntryKey(entryKey) {
+  if (!entryKey) return null;
+  const [date, slot, name, label, start, end, shiftType] = entryKey.split("|");
+  if (!date || !slot || !name) {
+    return null;
+  }
+  return { date, slot, name, label, start, end, shiftType };
 }
 
 async function handleAutoArrange() {
@@ -949,6 +1032,7 @@ function handleAdminTableClick(event) {
     entryButton.dataset.entryKey,
     isConfirmed
   );
+  renderConfirmedSummaryTable();
 }
 
 async function handleExportConfirmedShifts() {
