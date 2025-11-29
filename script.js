@@ -7,6 +7,11 @@ const SHIFT_TEMPLATES = {
 const MORNING_RANGE = { start: "10:00", end: "13:00" };
 const AFTERNOON_RANGE = { start: "13:00", end: "17:00" };
 const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
+const DEFAULT_PA_NAMES = [
+  { id: 1, name: "山田 太郎" },
+  { id: 2, name: "佐藤 花子" },
+  { id: 3, name: "鈴木 次郎" },
+];
 const LOCAL_STORAGE_KEYS = {
   names: "paShiftNames",
   specialDays: "paShiftSpecialDays",
@@ -322,6 +327,13 @@ async function refreshPaNames() {
       };
     })
     .filter((entry) => Boolean(entry.name));
+  if (!paNames.length) {
+    paNames = DEFAULT_PA_NAMES.map((entry, index) => ({
+      id: Number.isFinite(Number(entry.id)) ? Number(entry.id) : index + 1,
+      name: entry.name,
+    }));
+    persistPaNames();
+  }
   paNames.sort((a, b) => a.name.localeCompare(b.name, "ja"));
   syncStorageCounter("names", paNames);
 }
