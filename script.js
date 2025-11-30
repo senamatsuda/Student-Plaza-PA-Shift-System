@@ -267,10 +267,10 @@ async function init() {
   }
 
   await initializePaNames();
-  const now = new Date();
-  const currentMonthValue = formatMonthInput(now);
-  monthPicker.value = currentMonthValue;
-  adminMonthInput.value = currentMonthValue;
+  const nextMonthDate = getNextMonthDate();
+  const nextMonthValue = formatMonthInput(nextMonthDate);
+  monthPicker.value = nextMonthValue;
+  adminMonthInput.value = nextMonthValue;
   setupTabs();
   setupAdminSubtabs();
   await loadHolidayData();
@@ -1315,6 +1315,10 @@ function isWeekendDate(date) {
   return day === 0 || day === 6;
 }
 
+function getNextMonthDate(baseDate = new Date()) {
+  return new Date(baseDate.getFullYear(), baseDate.getMonth() + 1, 1);
+}
+
 function formatMonthInput(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -1323,7 +1327,7 @@ function formatMonthInput(date) {
 
 function parseMonthInput(value) {
   if (!value) {
-    return parseMonthInput(formatMonthInput(new Date()));
+    return parseMonthInput(formatMonthInput(getNextMonthDate()));
   }
   const [year, month] = value.split("-").map(Number);
   return { year, month: month - 1 };
