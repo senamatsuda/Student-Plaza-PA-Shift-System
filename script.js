@@ -810,6 +810,7 @@ function renderConfirmedSummaryTable() {
         <th>名前</th>
         <th>午前</th>
         <th>午後</th>
+        <th>合計</th>
       </tr>
     </thead>
   `;
@@ -823,9 +824,12 @@ function renderConfirmedSummaryTable() {
     morningCell.textContent = row.morning;
     const afternoonCell = document.createElement("td");
     afternoonCell.textContent = row.afternoon;
+    const totalCell = document.createElement("td");
+    totalCell.textContent = row.total;
     tr.appendChild(nameCell);
     tr.appendChild(morningCell);
     tr.appendChild(afternoonCell);
+    tr.appendChild(totalCell);
     tbody.appendChild(tr);
   });
 
@@ -850,9 +854,9 @@ function buildConfirmedSummary(monthKey) {
     counts[targetName][parsed.slot] += 1;
   });
 
-  return Object.values(counts).sort((a, b) =>
-    a.name.localeCompare(b.name, "ja")
-  );
+  return Object.values(counts)
+    .map((row) => ({ ...row, total: row.morning + row.afternoon }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
 }
 
 function parseConfirmedEntryKey(entryKey) {
