@@ -1,142 +1,111 @@
-import fs from "fs/promises";
-import path from "path";
+// api/storage.js (Supabase版)
+import { createClient } from '@supabase/supabase-js';
 
-const DEFAULT_PAYLOAD = {
-  names: [],
-  specialDays: [],
-  submissions: [],
-  counters: {
-    namesNextId: 1,
-    specialDaysNextId: 1,
-  },
-};
+// --- Supabase クライアントの初期化 ---
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
 
-export function createStorage(filePath) {
-  const resolvedPath = path.resolve(filePath || path.join(process.cwd(), "data.json"));
-  let initialized = false;
+if (!supabaseUrl || !supabaseKey) {
+    console.error('FATAL: Supabase environment variables (SUPABASE_URL or SUPABASE_SERVICE_KEY) are not set.');
+    // 接続情報がない場合はエラーをスローし、APIの起動をブロックします
+    throw new Error('Supabase client initialization failed due to missing environment variables.');
+}
 
-  async function ensureInitialized() {
-    if (initialized) return;
-    await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+/**
+ * Supabaseからデータを読み込み、既存のペイロード形式に整形して返します。
+ * @returns {Promise<{names: Array, specialDays: Array, submissions: Array, counters: Object}>}
+ */
+async function read() {
+    console.log('Reading data from Supabase...');
     try {
-      await fs.access(resolvedPath);
-    } catch (error) {
-      await writePayload(DEFAULT_PAYLOAD);
-    }
-    initialized = true;
-  }
+        // 1. 全テーブルからデータを並行して取得
+        const [
+            { data: names, error: namesError },
+            { data: specialDays, error: specialDaysError },
+            { data: submissions, error: submissionsError }
+        ] = await Promise.all([
+            supabase.from('names').select('*'),
+            supabase.from('special_days').select('*'),
+            supabase.from('submissions').select('*')
+        ]);
 
-  async function read() {
-    await ensureInitialized();
+        // エラーチェック
+        if (namesError || specialDaysError || submissionsError) {
+            console.error('Supabase read error:', namesError || specialDaysError || submissionsError);
+            throw new Error('Database query failed.');
+        }
+
+        // 2. 既存のペイロード形式に整形
+        // 注意: counters は自動採番に任せるため空のオブジェクトで返します
+        const payload = {
+            names: names || [],
+            specialDays: specialDays || [],
+            submissions: submissions || [],
+            // カウンターは Supabase の自動採番 (serial PK) に任せるため不要
+            counters: {} 
+        };
+
+        return payload;
+
+    } catch (error) {
+        console.error('Error during Supabase read operation:', error.message);
+        throw error;
+    }
+}
+
+/**
+ * ペイロードの内容をSupabaseの各テーブルに反映します。
+ * 既存のデータを全て削除し、新しいデータを挿入するシンプルなロジックを採用します。
+ * より複雑なシステムでは upsert やトランザクションを検討してください。
+ * * @param {{names: Array, specialDays: Array, submissions: Array}} payload 
+ * @returns {Promise<void>}
+ */
+async function write(payload) {
+    console.log('Writing data to Supabase...');
+    const { names, specialDays, submissions } = payload;
+
     try {
-      const raw = await fs.readFile(resolvedPath, "utf-8");
-      const parsed = JSON.parse(raw);
-      return normalizePayload(parsed.payload || parsed);
+        // --- データの書き込み（シンプルな全削除＆全挿入戦略） ---
+        
+        // 1. submissions (シフト提出データ) の処理
+        // 既存データを全て削除し、新しいデータを挿入
+        const { error: deleteSubmissionsError } = await supabase.from('submissions').delete().neq('id', 0); // 全削除
+        if (deleteSubmissionsError) throw deleteSubmissionsError;
+
+        const { error: insertSubmissionsError } = await supabase.from('submissions').insert(submissions);
+        if (insertSubmissionsError) throw insertSubmissionsError;
+        
+        // 2. special_days (特別日データ) の処理
+        // 既存データを全て削除し、新しいデータを挿入
+        const { error: deleteSpecialDaysError } = await supabase.from('special_days').delete().neq('id', 0); // 全削除
+        if (deleteSpecialDaysError) throw deleteSpecialDaysError;
+        
+        const { error: insertSpecialDaysError } = await supabase.from('special_days').insert(specialDays);
+        if (insertSpecialDaysError) throw insertSpecialDaysError;
+        
+        // 3. names (スタッフ名簿) の処理
+        // 既存データを全て削除し、新しいデータを挿入
+        const { error: deleteNamesError } = await supabase.from('names').delete().neq('id', 0); // 全削除
+        if (deleteNamesError) throw deleteNamesError;
+        
+        const { error: insertNamesError } = await supabase.from('names').insert(names);
+        if (insertNamesError) throw insertNamesError;
+
+        console.log('Data successfully written to Supabase.');
+        
     } catch (error) {
-      if (error.code === "ENOENT") {
-        await writePayload(DEFAULT_PAYLOAD);
-        return DEFAULT_PAYLOAD;
-      }
-      throw error;
+        console.error('Error during Supabase write operation:', error.message);
+        throw new Error('Database write failed.');
     }
-  }
+}
 
-  async function write(payload) {
-    await ensureInitialized();
-    const normalized = normalizePayload(payload);
-    await writePayload(normalized);
-    return normalized;
-  }
-
-  async function writePayload(payload) {
-    const wrapped = {
-      version: 1,
-      updatedAt: new Date().toISOString(),
-      payload,
+// --- 既存の API インターフェースに合わせて createStorage 関数を定義 ---
+export function createStorage(dataFilePath) {
+    // dataFilePath は Supabase では使用しませんが、既存の関数シグネチャを維持
+    return {
+        read,
+        write
     };
-    await fs.writeFile(resolvedPath, JSON.stringify(wrapped, null, 2));
-  }
-
-  return {
-    path: resolvedPath,
-    read,
-    write,
-    ensureInitialized,
-  };
-}
-
-function normalizePayload(source = {}) {
-  return {
-    names: sanitizeNameEntries(source.names),
-    specialDays: sanitizeSpecialDayEntries(source.specialDays),
-    submissions: sanitizeSubmissionEntries(source.submissions),
-    counters: {
-      namesNextId: sanitizeCounter(source.counters?.namesNextId, source.names),
-      specialDaysNextId: sanitizeCounter(
-        source.counters?.specialDaysNextId,
-        source.specialDays
-      ),
-    },
-  };
-}
-
-function sanitizeNameEntries(entries) {
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-  return entries
-    .map((entry, index) => ({
-      id: sanitizeId(entry?.id, index + 1),
-      name: typeof entry?.name === "string" ? entry.name.trim() : "",
-    }))
-    .filter((entry) => entry.name);
-}
-
-function sanitizeSpecialDayEntries(entries) {
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-  return entries
-    .map((entry, index) => ({
-      id: sanitizeId(entry?.id, index + 1),
-      date: typeof entry?.date === "string" ? entry.date : "",
-      note: typeof entry?.note === "string" ? entry.note.trim() : "",
-    }))
-    .filter((entry) => entry.date && entry.note);
-}
-
-function sanitizeSubmissionEntries(entries) {
-  if (!Array.isArray(entries)) {
-    return [];
-  }
-  return entries
-    .map((entry) => ({
-      name: typeof entry?.name === "string" ? entry.name : "",
-      date: typeof entry?.date === "string" ? entry.date : "",
-      monthKey: typeof entry?.monthKey === "string" ? entry.monthKey : "",
-      shiftType: typeof entry?.shiftType === "string" ? entry.shiftType : "",
-      start: typeof entry?.start === "string" ? entry.start : null,
-      end: typeof entry?.end === "string" ? entry.end : null,
-    }))
-    .filter((entry) => entry.name && entry.date && entry.monthKey && entry.shiftType);
-}
-
-function sanitizeCounter(counterValue, list = []) {
-  const value = Number(counterValue);
-  if (Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  const maxId = (Array.isArray(list) ? list : []).reduce((max, entry, index) => {
-    const id = sanitizeId(entry?.id, index + 1);
-    return Math.max(max, id);
-  }, 0);
-  return maxId + 1 || 1;
-}
-
-function sanitizeId(rawId, fallback) {
-  const value = Number(rawId);
-  if (Number.isFinite(value) && value > 0) {
-    return value;
-  }
-  return fallback;
 }
