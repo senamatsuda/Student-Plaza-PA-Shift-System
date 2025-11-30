@@ -566,22 +566,27 @@ button:hover {
   border-color: var(--special-day-border);
 }
 
+.admin-table:not(.admin-table--summary) td:not(:first-child) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+
 .admin-slot-entry {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   text-align: left;
   border: 1px solid transparent;
   border-radius: 10px;
-  padding: 0.25rem 0.5rem;
+  padding: 0.25rem 0.6rem;
   background: transparent;
   color: inherit;
   font: inherit;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease;
-}
-
-.admin-slot-entry + .admin-slot-entry {
-  margin-top: 0.3rem;
+  white-space: nowrap;
 }
 
 .admin-slot-entry:hover {
