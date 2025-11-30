@@ -64,7 +64,7 @@ app.listen(PORT, () => {
 async function initializeStorage(primaryPath, fallbackPath) {
   const storage = createStorage(primaryPath);
   try {
-    await storage.ensureInitialized();
+    //await storage.ensureInitialized();
     return storage;
   } catch (error) {
     if (error.code === "EACCES" || error.code === "EPERM") {
