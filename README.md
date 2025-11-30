@@ -62,6 +62,47 @@ DATA_FILE=./api/dev-data.json npm --prefix api start
 | シフト提出 | LocalStorage: `paShiftSubmissions` / Supabase または Render API | 午前/午後/その他の時間帯を記録 |
 | 確定シフト | LocalStorage: `paShiftConfirmedShifts` / Supabase または Render API | Admin 画面で確定した結果を保持 |
 
+### Supabase で利用するテーブル例
+
+Render API と同じ JSON 形式で同期するため、Supabase でも以下のテーブルを用意してください（すべて `TEXT` で揃えています）。
+
+```sql
+-- 1) names: PA 名簿
+CREATE TABLE IF NOT EXISTS names (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL
+);
+
+-- 2) special_days: 特別日
+CREATE TABLE IF NOT EXISTS special_days (
+  id SERIAL PRIMARY KEY,
+  date TEXT NOT NULL,
+  note TEXT NOT NULL
+);
+
+-- 3) submissions: シフト提出データ
+CREATE TABLE IF NOT EXISTS submissions (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  date TEXT NOT NULL,
+  monthKey TEXT NOT NULL,
+  shiftType TEXT NOT NULL,
+  start TEXT,
+  "end" TEXT
+);
+
+-- 4) confirmed_shifts: 確定シフト (Admin での確定結果)
+CREATE TABLE IF NOT EXISTS confirmed_shifts (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  date TEXT NOT NULL,
+  shift_type TEXT NOT NULL,
+  start TEXT,
+  "end" TEXT,
+  note TEXT
+);
+```
+
 - `config.js` の `apiBaseUrl` を設定すると、起動時に Supabase (または Render) の API から JSON を取得し、以降の更新も数秒以内に同期されます。
 - API が未設定、またはネットワーク障害がある場合は同期ステータスが警告/エラー表示となり、ブラウザ内のみで保存されます。
 - LocalStorage の内容を完全に削除したい場合はブラウザの開発者ツール等から対象サイトのデータをクリアしてください。
