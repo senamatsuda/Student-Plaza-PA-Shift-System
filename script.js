@@ -749,8 +749,10 @@ function renderAdminTable() {
 
     columnConfigs.forEach(({ items, slotKey }) => {
       const cell = document.createElement("td");
+      const slotContainer = document.createElement("div");
+      slotContainer.className = "admin-slot-items";
+
       if (items.length) {
-        const fragment = document.createDocumentFragment();
         items.forEach((item) => {
           const button = document.createElement("button");
           button.type = "button";
@@ -768,12 +770,16 @@ function renderAdminTable() {
             button.classList.add("is-confirmed");
           }
           button.setAttribute("aria-pressed", String(isConfirmed));
-          fragment.appendChild(button);
+          slotContainer.appendChild(button);
         });
-        cell.appendChild(fragment);
       } else {
-        cell.innerHTML = "<span style='color:#94a3b8'>--</span>";
+        const placeholder = document.createElement("span");
+        placeholder.className = "admin-slot-placeholder";
+        placeholder.textContent = "--";
+        slotContainer.appendChild(placeholder);
       }
+
+      cell.appendChild(slotContainer);
       row.appendChild(cell);
     });
 
