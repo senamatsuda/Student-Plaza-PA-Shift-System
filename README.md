@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS confirmed_shifts (
   id SERIAL PRIMARY KEY,
   name TEXT NOT NULL,
   date TEXT NOT NULL,
-  shift_type TEXT NOT NULL,
+  shiftType TEXT NOT NULL,
   start TEXT,
   "end" TEXT,
   note TEXT
