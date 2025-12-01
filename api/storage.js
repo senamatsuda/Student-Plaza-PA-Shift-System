@@ -77,7 +77,8 @@ async function write(payload) {
         const { error: deleteSubmissionsError } = await supabase.from('submissions').delete().neq('id', 0); // 全削除
         if (deleteSubmissionsError) throw deleteSubmissionsError;
 
-        const { error: insertSubmissionsError } = await supabase.from('submissions').insert(submissions);
+        const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
+        const { error: insertSubmissionsError } = await supabase.from('submissions').insert(normalizedSubmissions);
         if (insertSubmissionsError) throw insertSubmissionsError;
 
         // 2. confirmed_shifts (確定シフト) の処理
@@ -100,7 +101,8 @@ async function write(payload) {
         const { error: deleteSpecialDaysError } = await supabase.from('special_days').delete().neq('id', 0); // 全削除
         if (deleteSpecialDaysError) throw deleteSpecialDaysError;
         
-        const { error: insertSpecialDaysError } = await supabase.from('special_days').insert(specialDays);
+        const normalizedSpecialDays = normalizeListWithIds(specialDays);
+        const { error: insertSpecialDaysError } = await supabase.from('special_days').insert(normalizedSpecialDays);
         if (insertSpecialDaysError) throw insertSpecialDaysError;
         
         // 3. names (スタッフ名簿) の処理
@@ -108,7 +110,8 @@ async function write(payload) {
         const { error: deleteNamesError } = await supabase.from('names').delete().neq('id', 0); // 全削除
         if (deleteNamesError) throw deleteNamesError;
         
-        const { error: insertNamesError } = await supabase.from('names').insert(names);
+        const normalizedNames = normalizeListWithIds(names);
+        const { error: insertNamesError } = await supabase.from('names').insert(normalizedNames);
         if (insertNamesError) throw insertNamesError;
 
         console.log('Data successfully written to Supabase.');
@@ -186,6 +189,50 @@ function buildEntryKeyFromRow(row) {
         return null;
     }
     return [date, slot, name, label, start, end, shiftType].join('|');
+}
+
+function normalizeListWithIds(entries) {
+    let nextId = 1;
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+
+        const parsedId = Number(entry.id);
+        const id = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : nextId++;
+        nextId = Math.max(nextId, id + 1);
+
+        acc.push({ ...entry, id });
+        return acc;
+    }, []);
+}
+
+function normalizeSubmissionsForInsert(entries) {
+    let nextId = 1;
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+
+        const hasRequiredFields =
+            typeof entry.name === 'string' &&
+            typeof entry.date === 'string' &&
+            typeof entry.monthKey === 'string' &&
+            typeof entry.shiftType === 'string';
+
+        if (!hasRequiredFields) return acc;
+
+        const parsedId = Number(entry.id);
+        const id = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : nextId++;
+        nextId = Math.max(nextId, id + 1);
+
+        acc.push({
+            id,
+            name: entry.name,
+            date: entry.date,
+            monthKey: entry.monthKey,
+            shiftType: entry.shiftType,
+            start: entry.start ?? null,
+            end: entry.end ?? null
+        });
+        return acc;
+    }, []);
 }
 
 // --- 既存の API インターフェースに合わせて createStorage 関数を定義 ---
