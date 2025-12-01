@@ -135,7 +135,7 @@ function serializeConfirmedShifts(confirmedShifts) {
                 return {
                     name: parsed.name,
                     date: parsed.date,
-                    shift_type: shiftType,
+                    shiftType,
                     start: parsed.start || null,
                     end: parsed.end || null,
                     note: parsed.label || null
@@ -177,7 +177,7 @@ function buildEntryKeyFromRow(row) {
     if (!row) return null;
     const date = row.date || '';
     const name = row.name || '';
-    const shiftType = row.shift_type || '';
+    const shiftType = row.shiftType || '';
     const slot = shiftType || '';
     const label = row.note || row.name || '';
     const start = row.start || '';
