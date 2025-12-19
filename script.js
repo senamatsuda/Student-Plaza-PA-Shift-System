@@ -27,6 +27,7 @@ const LOCAL_STORAGE_KEYS = {
   specialDays: "paShiftSpecialDays",
   submissions: "paShiftSubmissions",
   confirmedShifts: "paShiftConfirmedShifts",
+  lastPushAt: "paShiftLastPushAt",
 };
 const ID_COUNTER_KEYS = {
   names: "paShiftNamesNextId",
@@ -663,7 +664,13 @@ function saveSubmissionEntries(name, monthKey, entries) {
   submissionEntries = submissionEntries.filter(
     (entry) => !(entry.name === name && entry.monthKey === monthKey)
   );
-  submissionEntries.push(...entries);
+  const updatedAt = new Date().toISOString();
+  submissionEntries.push(
+    ...entries.map((entry) => ({
+      ...entry,
+      updatedAt,
+    }))
+  );
   persistSubmissions();
 }
 
@@ -1788,16 +1795,52 @@ async function pushRemoteData() {
   remotePushInFlight = true;
   updateSyncStatus("Render に保存しています...");
   try {
-    await remoteSyncClient.push(collectLocalDataset());
-    remoteSyncState.lastPush = new Date();
-    updateSyncStatus(
-      `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
-    );
+    const maxAttempts = 3;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      try {
+        if (attempt > 0) {
+          updateSyncStatus(
+            `Render への保存に失敗したためリトライ中... (${attempt}/${maxAttempts - 1})`,
+            "warning"
+          );
+          await delay(800 * attempt);
+        }
+        await remoteSyncClient.push(collectLocalDataset());
+        remoteSyncState.lastPush = new Date();
+        storageSetItem(
+          LOCAL_STORAGE_KEYS.lastPushAt,
+          remoteSyncState.lastPush.toISOString()
+        );
+        updateSyncStatus(
+          `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
+        );
+        return;
+      } catch (error) {
+        attempt += 1;
+        if (attempt >= maxAttempts) {
+          throw error;
+        }
+      }
+    }
   } catch (error) {
-    updateSyncStatus(
-      "リモートへの保存に失敗しました。ネットワーク状態を確認してください。",
-      "error"
-    );
+    if (error?.status === 409) {
+      updateSyncStatus(
+        "リモート側で競合が検出されました。最新データを取り込み直してください。",
+        "error"
+      );
+      window.alert(
+        "同期時に競合が検出されました。再読み込み後にもう一度保存してください。"
+      );
+    } else {
+      updateSyncStatus(
+        "リモートへの保存に失敗しました。ネットワーク状態を確認してください。",
+        "error"
+      );
+      window.alert(
+        "リモートへの保存に失敗しました。接続状態を確認して再試行してください。"
+      );
+    }
     throw error;
   } finally {
     remotePushInFlight = false;
@@ -1805,16 +1848,38 @@ async function pushRemoteData() {
 }
 
 function collectLocalDataset() {
+  const submissions = collectSubmissionDelta();
   return {
     names: paNames,
     specialDays: specialDayEntries,
-    submissions: submissionEntries,
+    submissions,
     confirmedShifts: confirmedShiftMap,
     counters: {
       namesNextId: getStorageCounterValue("names"),
       specialDaysNextId: getStorageCounterValue("specialDays"),
     },
   };
+}
+
+function collectSubmissionDelta() {
+  const lastPushAt = getLastPushTimestamp();
+  if (!lastPushAt) {
+    return submissionEntries;
+  }
+  return submissionEntries.filter((entry) => {
+    if (!entry?.updatedAt) {
+      return true;
+    }
+    const updatedAt = new Date(entry.updatedAt);
+    return Number.isNaN(updatedAt.getTime()) || updatedAt > lastPushAt;
+  });
+}
+
+function getLastPushTimestamp() {
+  const raw = storageGetItem(LOCAL_STORAGE_KEYS.lastPushAt);
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
 function applyRemoteDataset(dataset) {
@@ -1914,6 +1979,10 @@ function formatTimestamp(date) {
   return `${year}/${month}/${day} ${hours}:${minutes}`;
 }
 
+function delay(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function createRemoteSyncClient() {
   const config = window.PA_SHIFT_CONFIG || {};
   const baseUrl = (config.apiBaseUrl || "").trim();
@@ -1939,7 +2008,9 @@ function createRemoteSyncClient() {
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || response.statusText || "Request failed");
+        const error = new Error(text || response.statusText || "Request failed");
+        error.status = response.status;
+        throw error;
       }
       if (response.status === 204) {
         return null;
