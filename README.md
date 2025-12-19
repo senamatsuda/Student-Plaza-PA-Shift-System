@@ -88,8 +88,7 @@ CREATE TABLE IF NOT EXISTS submissions (
   monthKey TEXT NOT NULL,
   shiftType TEXT NOT NULL,
   start TEXT,
-  "end" TEXT,
-  UNIQUE (name, date, shiftType, start, "end")
+  "end" TEXT
 );
 
 -- 4) confirmed_shifts: 確定シフト (Admin での確定結果)

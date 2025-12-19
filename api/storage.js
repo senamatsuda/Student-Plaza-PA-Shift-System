@@ -61,7 +61,7 @@ async function read() {
 /**
  * ペイロードの内容をSupabaseの各テーブルに反映します。
  * 既存のデータを全て削除し、新しいデータを挿入するシンプルなロジックを採用します。
- * submissions は競合を避けるため upsert を利用します。
+ * より複雑なシステムでは upsert やトランザクションを検討してください。
  * * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object}} payload
  * @returns {Promise<void>}
  */
@@ -73,14 +73,13 @@ async function write(payload) {
         // --- データの書き込み（シンプルな全削除＆全挿入戦略） ---
         
         // 1. submissions (シフト提出データ) の処理
-        // 既存データの全削除は行わず、重複を防ぐため upsert を行う
+        // 既存データを全て削除し、新しいデータを挿入
+        const { error: deleteSubmissionsError } = await supabase.from('submissions').delete().neq('id', 0); // 全削除
+        if (deleteSubmissionsError) throw deleteSubmissionsError;
+
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
-        if (normalizedSubmissions.length) {
-            const { error: upsertSubmissionsError } = await supabase
-                .from('submissions')
-                .upsert(normalizedSubmissions, { onConflict: 'name,date,shiftType,start,end' });
-            if (upsertSubmissionsError) throw upsertSubmissionsError;
-        }
+        const { error: insertSubmissionsError } = await supabase.from('submissions').insert(normalizedSubmissions);
+        if (insertSubmissionsError) throw insertSubmissionsError;
 
         // 2. confirmed_shifts (確定シフト) の処理
         const confirmedShiftRows = serializeConfirmedShifts(confirmedShifts || {});
@@ -207,6 +206,7 @@ function normalizeListWithIds(entries) {
 }
 
 function normalizeSubmissionsForInsert(entries) {
+    let nextId = 1;
     return (entries || []).reduce((acc, entry) => {
         if (!entry || typeof entry !== 'object') return acc;
 
@@ -218,7 +218,12 @@ function normalizeSubmissionsForInsert(entries) {
 
         if (!hasRequiredFields) return acc;
 
+        const parsedId = Number(entry.id);
+        const id = Number.isFinite(parsedId) && parsedId > 0 ? parsedId : nextId++;
+        nextId = Math.max(nextId, id + 1);
+
         acc.push({
+            id,
             name: entry.name,
             date: entry.date,
             monthKey: entry.monthKey,
