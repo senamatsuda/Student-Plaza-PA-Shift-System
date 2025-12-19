@@ -60,8 +60,7 @@ async function read() {
 
 /**
  * ペイロードの内容をSupabaseの各テーブルに反映します。
- * 既存のデータを全て削除し、新しいデータを挿入するシンプルなロジックを採用します。
- * submissions は競合を避けるため upsert を利用します。
+ * 既存のデータは削除せず、差分をマージするために upsert を利用します。
  * * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object}} payload
  * @returns {Promise<void>}
  */
@@ -70,7 +69,7 @@ async function write(payload) {
     const { names, specialDays, submissions, confirmedShifts } = payload;
 
     try {
-        // --- データの書き込み（シンプルな全削除＆全挿入戦略） ---
+        // --- データの書き込み（差分マージ戦略） ---
         
         // 1. submissions (シフト提出データ) の処理
         // 既存データの全削除は行わず、重複を防ぐため upsert を行う
@@ -84,36 +83,30 @@ async function write(payload) {
 
         // 2. confirmed_shifts (確定シフト) の処理
         const confirmedShiftRows = serializeConfirmedShifts(confirmedShifts || {});
-        const { error: deleteConfirmedError } = await supabase
-            .from('confirmed_shifts')
-            .delete()
-            .neq('id', 0);
-        if (deleteConfirmedError) throw deleteConfirmedError;
-
         if (confirmedShiftRows.length) {
-            const { error: insertConfirmedError } = await supabase
+            const { error: upsertConfirmedError } = await supabase
                 .from('confirmed_shifts')
-                .insert(confirmedShiftRows);
-            if (insertConfirmedError) throw insertConfirmedError;
+                .upsert(confirmedShiftRows, { onConflict: 'name,date,shiftType' });
+            if (upsertConfirmedError) throw upsertConfirmedError;
         }
 
-        // 2. special_days (特別日データ) の処理
-        // 既存データを全て削除し、新しいデータを挿入
-        const { error: deleteSpecialDaysError } = await supabase.from('special_days').delete().neq('id', 0); // 全削除
-        if (deleteSpecialDaysError) throw deleteSpecialDaysError;
-        
+        // 3. special_days (特別日データ) の処理
         const normalizedSpecialDays = normalizeListWithIds(specialDays);
-        const { error: insertSpecialDaysError } = await supabase.from('special_days').insert(normalizedSpecialDays);
-        if (insertSpecialDaysError) throw insertSpecialDaysError;
+        if (normalizedSpecialDays.length) {
+            const { error: upsertSpecialDaysError } = await supabase
+                .from('special_days')
+                .upsert(normalizedSpecialDays, { onConflict: 'id' });
+            if (upsertSpecialDaysError) throw upsertSpecialDaysError;
+        }
         
-        // 3. names (スタッフ名簿) の処理
-        // 既存データを全て削除し、新しいデータを挿入
-        const { error: deleteNamesError } = await supabase.from('names').delete().neq('id', 0); // 全削除
-        if (deleteNamesError) throw deleteNamesError;
-        
+        // 4. names (スタッフ名簿) の処理
         const normalizedNames = normalizeListWithIds(names);
-        const { error: insertNamesError } = await supabase.from('names').insert(normalizedNames);
-        if (insertNamesError) throw insertNamesError;
+        if (normalizedNames.length) {
+            const { error: upsertNamesError } = await supabase
+                .from('names')
+                .upsert(normalizedNames, { onConflict: 'id' });
+            if (upsertNamesError) throw upsertNamesError;
+        }
 
         console.log('Data successfully written to Supabase.');
         
@@ -224,7 +217,8 @@ function normalizeSubmissionsForInsert(entries) {
             monthKey: entry.monthKey,
             shiftType: entry.shiftType,
             start: entry.start ?? null,
-            end: entry.end ?? null
+            end: entry.end ?? null,
+            updatedAt: entry.updatedAt ?? null
         });
         return acc;
     }, []);
