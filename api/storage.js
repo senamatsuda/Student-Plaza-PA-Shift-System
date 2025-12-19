@@ -72,41 +72,13 @@ async function write(payload) {
         // --- データの書き込み（差分マージ戦略） ---
         
         // 1. submissions (シフト提出データ) の処理
-        // 既存データは維持し、差分のみを追加する
-        const { data: existingSubmissions, error: fetchSubmissionsError } = await supabase
-            .from('submissions')
-            .select('name,date,shiftType,start,end');
-        if (fetchSubmissionsError) throw fetchSubmissionsError;
-
-        const existingSubmissionKeys = new Set(
-            (existingSubmissions || []).map((entry) =>
-                [
-                    entry?.name ?? '',
-                    entry?.date ?? '',
-                    entry?.shiftType ?? '',
-                    entry?.start ?? '',
-                    entry?.end ?? ''
-                ].join('|')
-            )
-        );
-
+        // 既存データの全削除は行わず、重複を防ぐため upsert を行う
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
-        const newSubmissions = normalizedSubmissions.filter((entry) => {
-            const key = [
-                entry.name ?? '',
-                entry.date ?? '',
-                entry.shiftType ?? '',
-                entry.start ?? '',
-                entry.end ?? ''
-            ].join('|');
-            return !existingSubmissionKeys.has(key);
-        });
-
-        if (newSubmissions.length) {
-            const { error: insertSubmissionsError } = await supabase
+        if (normalizedSubmissions.length) {
+            const { error: upsertSubmissionsError } = await supabase
                 .from('submissions')
-                .insert(newSubmissions);
-            if (insertSubmissionsError) throw insertSubmissionsError;
+                .upsert(normalizedSubmissions, { onConflict: 'name,date,shiftType,start,end' });
+            if (upsertSubmissionsError) throw upsertSubmissionsError;
         }
 
         // 2. confirmed_shifts (確定シフト) の処理
