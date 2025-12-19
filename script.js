@@ -38,7 +38,7 @@ const storageBackend = createStorageBackend();
 const isEphemeralStorage = storageBackend.type !== "localStorage";
 const remoteSyncClient = createRemoteSyncClient();
 const REMOTE_KEEPALIVE_INTERVAL_MS = 14 * 60 * 1000;
-const remoteSyncState = { lastPull: null, lastPush: null };
+const remoteSyncState = { lastPull: null, lastPush: null, isConnected: false };
 let remotePushTimeoutId = null;
 let remotePushInFlight = false;
 let remoteKeepAliveTimerId = null;
@@ -80,6 +80,10 @@ const paNameInput = document.getElementById("paNameInput");
 const paNameStatus = document.getElementById("paNameStatus");
 const paNameList = document.getElementById("paNameList");
 const syncStatus = document.getElementById("syncStatus");
+const submitButton = form?.querySelector("button[type=\"submit\"]");
+
+const RENDER_UNAVAILABLE_MESSAGE =
+  "Render と接続できないため、シフトを提出できません。";
 
 const template = document.getElementById("shiftRowTemplate");
 
@@ -257,13 +261,16 @@ init().catch((error) => {
 
 async function init() {
   if (remoteSyncClient) {
+    setRemoteConnectionStatus(false);
     await syncRemoteDataFromServer();
     startRemoteKeepAlive();
   } else {
+    remoteSyncState.isConnected = true;
     updateSyncStatus(
       "リモートAPIが設定されていないため、このブラウザ内にのみデータが保存されます。",
       "warning"
     );
+    updateSubmitAvailability();
   }
 
   await initializePaNames();
@@ -557,6 +564,14 @@ function generateTimeSlots(startHour, endHour, stepMinutes) {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  if (remoteSyncClient) {
+    const canSubmit = await ensureRemoteConnection();
+    if (!canSubmit) {
+      formStatus.textContent = RENDER_UNAVAILABLE_MESSAGE;
+      formStatus.style.color = "#b42318";
+      return;
+    }
+  }
   const name = studentNameSelect.value;
   let entries;
   try {
@@ -1735,12 +1750,14 @@ function updatePaNameStatus(message, color = "#0f7b6c") {
 
 function handleOnlineStatusChange() {
   if (!remoteSyncClient) return;
+  setRemoteConnectionStatus(false);
   updateSyncStatus("オンラインになりました。最新の変更を保存します。");
   scheduleRemotePush();
 }
 
 function handleOfflineStatusChange() {
   if (!remoteSyncClient) return;
+  setRemoteConnectionStatus(false);
   updateSyncStatus(
     "オフラインのため、接続が回復するまでブラウザ内にのみ保存されます。",
     "warning"
@@ -1755,12 +1772,14 @@ async function syncRemoteDataFromServer() {
     if (dataset) {
       applyRemoteDataset(dataset);
     }
+    setRemoteConnectionStatus(true);
     remoteSyncState.lastPull = new Date();
     updateSyncStatus(
       `Render と同期済み (${formatTimestamp(remoteSyncState.lastPull)})`
     );
   } catch (error) {
     console.error("Failed to fetch remote data", error);
+    setRemoteConnectionStatus(false);
     updateSyncStatus(
       "リモートAPIに接続できません。接続が回復するまでローカル保存で動作します。",
       "error"
@@ -1789,11 +1808,13 @@ async function pushRemoteData() {
   updateSyncStatus("Render に保存しています...");
   try {
     await remoteSyncClient.push(collectLocalDataset());
+    setRemoteConnectionStatus(true);
     remoteSyncState.lastPush = new Date();
     updateSyncStatus(
       `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
     );
   } catch (error) {
+    setRemoteConnectionStatus(false);
     updateSyncStatus(
       "リモートへの保存に失敗しました。ネットワーク状態を確認してください。",
       "error"
@@ -1904,6 +1925,38 @@ function updateSyncStatus(message, variant = "info") {
   }
 }
 
+function updateSubmitAvailability() {
+  if (!remoteSyncClient || !submitButton) return;
+  const shouldDisable = !remoteSyncState.isConnected;
+  submitButton.disabled = shouldDisable;
+  submitButton.setAttribute("aria-disabled", String(shouldDisable));
+  if (shouldDisable) {
+    formStatus.textContent = RENDER_UNAVAILABLE_MESSAGE;
+    formStatus.style.color = "#b42318";
+  } else if (formStatus.textContent === RENDER_UNAVAILABLE_MESSAGE) {
+    formStatus.textContent = "";
+  }
+}
+
+function setRemoteConnectionStatus(isConnected) {
+  remoteSyncState.isConnected = Boolean(isConnected);
+  updateSubmitAvailability();
+}
+
+async function ensureRemoteConnection() {
+  if (!remoteSyncClient) return true;
+  if (remoteSyncState.isConnected) return true;
+  try {
+    await remoteSyncClient.ping();
+    setRemoteConnectionStatus(true);
+    return true;
+  } catch (error) {
+    console.warn("Remote connectivity check failed", error);
+    setRemoteConnectionStatus(false);
+    return false;
+  }
+}
+
 function formatTimestamp(date) {
   if (!date) return "";
   const year = date.getFullYear();
@@ -1973,7 +2026,9 @@ function startRemoteKeepAlive() {
   const runPing = async () => {
     try {
       await remoteSyncClient.ping();
+      setRemoteConnectionStatus(true);
     } catch (error) {
+      setRemoteConnectionStatus(false);
       console.warn("Remote keep-alive ping failed", error);
     }
   };
