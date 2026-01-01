@@ -60,9 +60,8 @@ async function read() {
 
 /**
  * ペイロードの内容をSupabaseの各テーブルに反映します。
- * 既存のデータを全て削除し、新しいデータを挿入するシンプルなロジックを採用します。
- * より複雑なシステムでは upsert やトランザクションを検討してください。
- * * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object}} payload
+ * 既存データとの差分のみを反映し、全削除を避けることで不要な書き込みを減らします。
+ * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object}} payload
  * @returns {Promise<void>}
  */
 async function write(payload) {
@@ -70,56 +69,148 @@ async function write(payload) {
     const { names, specialDays, submissions, confirmedShifts } = payload;
 
     try {
-        // --- データの書き込み（シンプルな全削除＆全挿入戦略） ---
-        
-        // 1. submissions (シフト提出データ) の処理
-        // 既存データを全て削除し、新しいデータを挿入
-        const { error: deleteSubmissionsError } = await supabase.from('submissions').delete().neq('id', 0); // 全削除
-        if (deleteSubmissionsError) throw deleteSubmissionsError;
-
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
-        const { error: insertSubmissionsError } = await supabase.from('submissions').insert(normalizedSubmissions);
-        if (insertSubmissionsError) throw insertSubmissionsError;
-
-        // 2. confirmed_shifts (確定シフト) の処理
+        const normalizedSpecialDays = normalizeListWithIds(specialDays);
+        const normalizedNames = normalizeListWithIds(names);
         const confirmedShiftRows = serializeConfirmedShifts(confirmedShifts || {});
-        const { error: deleteConfirmedError } = await supabase
-            .from('confirmed_shifts')
-            .delete()
-            .neq('id', 0);
-        if (deleteConfirmedError) throw deleteConfirmedError;
 
-        if (confirmedShiftRows.length) {
-            const { error: insertConfirmedError } = await supabase
-                .from('confirmed_shifts')
-                .insert(confirmedShiftRows);
-            if (insertConfirmedError) throw insertConfirmedError;
+        const [
+            { data: currentSubmissions, error: fetchSubmissionsError },
+            { data: currentConfirmedShifts, error: fetchConfirmedError },
+            { data: currentSpecialDays, error: fetchSpecialDaysError },
+            { data: currentNames, error: fetchNamesError }
+        ] = await Promise.all([
+            supabase.from('submissions').select('*'),
+            supabase.from('confirmed_shifts').select('*'),
+            supabase.from('special_days').select('*'),
+            supabase.from('names').select('*')
+        ]);
+
+        if (fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError) {
+            console.error(
+                'Supabase fetch error:',
+                fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError
+            );
+            throw new Error('Failed to fetch existing data before diff sync.');
         }
 
-        // 2. special_days (特別日データ) の処理
-        // 既存データを全て削除し、新しいデータを挿入
-        const { error: deleteSpecialDaysError } = await supabase.from('special_days').delete().neq('id', 0); // 全削除
-        if (deleteSpecialDaysError) throw deleteSpecialDaysError;
-        
-        const normalizedSpecialDays = normalizeListWithIds(specialDays);
-        const { error: insertSpecialDaysError } = await supabase.from('special_days').insert(normalizedSpecialDays);
-        if (insertSpecialDaysError) throw insertSpecialDaysError;
-        
-        // 3. names (スタッフ名簿) の処理
-        // 既存データを全て削除し、新しいデータを挿入
-        const { error: deleteNamesError } = await supabase.from('names').delete().neq('id', 0); // 全削除
-        if (deleteNamesError) throw deleteNamesError;
-        
-        const normalizedNames = normalizeListWithIds(names);
-        const { error: insertNamesError } = await supabase.from('names').insert(normalizedNames);
-        if (insertNamesError) throw insertNamesError;
+        await syncTableWithDiff({
+            tableName: 'submissions',
+            nextRows: normalizedSubmissions,
+            currentRows: currentSubmissions || [],
+            keyFn: (row) => row.id,
+            compareKeys: ['name', 'date', 'monthKey', 'shiftType', 'start', 'end']
+        });
+
+        await syncTableWithDiff({
+            tableName: 'confirmed_shifts',
+            nextRows: confirmedShiftRows,
+            currentRows: currentConfirmedShifts || [],
+            keyFn: (row) => `${row.date}|${row.name}|${row.shiftType}`,
+            compareKeys: ['start', 'end', 'note'],
+            allowIdReuse: true
+        });
+
+        await syncTableWithDiff({
+            tableName: 'special_days',
+            nextRows: normalizedSpecialDays,
+            currentRows: currentSpecialDays || [],
+            keyFn: (row) => row.id,
+            compareKeys: ['date', 'note']
+        });
+
+        await syncTableWithDiff({
+            tableName: 'names',
+            nextRows: normalizedNames,
+            currentRows: currentNames || [],
+            keyFn: (row) => row.id,
+            compareKeys: ['name']
+        });
 
         console.log('Data successfully written to Supabase.');
-        
+
     } catch (error) {
         console.error('Error during Supabase write operation:', error.message);
         throw new Error('Database write failed.');
     }
+}
+
+async function syncTableWithDiff({
+    tableName,
+    nextRows,
+    currentRows,
+    keyFn,
+    compareKeys,
+    allowIdReuse = false
+}) {
+    const { rowsToUpsert, idsToDelete } = computeDiff({
+        nextRows,
+        currentRows,
+        keyFn,
+        compareKeys,
+        allowIdReuse
+    });
+
+    if (idsToDelete.length) {
+        const { error: deleteError } = await supabase.from(tableName).delete().in('id', idsToDelete);
+        if (deleteError) throw deleteError;
+    }
+
+    if (rowsToUpsert.length) {
+        const { error: upsertError } = await supabase
+            .from(tableName)
+            .upsert(rowsToUpsert, { onConflict: 'id' });
+        if (upsertError) throw upsertError;
+    }
+}
+
+function computeDiff({ nextRows, currentRows, keyFn, compareKeys, allowIdReuse }) {
+    const currentMap = new Map();
+    (currentRows || []).forEach((row) => {
+        const key = keyFn(row);
+        if (key !== undefined && key !== null) {
+            currentMap.set(key, row);
+        }
+    });
+
+    const seenKeys = new Set();
+    const rowsToUpsert = [];
+
+    (nextRows || []).forEach((row) => {
+        const key = keyFn(row);
+        if (key === undefined || key === null) return;
+        seenKeys.add(key);
+
+        const existing = currentMap.get(key);
+        const preparedRow = { ...row };
+
+        if (existing && allowIdReuse && existing.id && !preparedRow.id) {
+            preparedRow.id = existing.id;
+        }
+
+        const hasDiff = existing
+            ? !areRowsEqual(existing, preparedRow, compareKeys)
+            : true;
+
+        if (hasDiff) {
+            rowsToUpsert.push(preparedRow);
+        }
+    });
+
+    const idsToDelete = (currentRows || [])
+        .filter((row) => !seenKeys.has(keyFn(row)))
+        .map((row) => row.id)
+        .filter((id) => id !== undefined && id !== null);
+
+    return { rowsToUpsert, idsToDelete };
+}
+
+function areRowsEqual(a, b, keys) {
+    return keys.every((key) => normalizeValue(a?.[key]) === normalizeValue(b?.[key]));
+}
+
+function normalizeValue(value) {
+    return value === undefined ? null : value;
 }
 
 function serializeConfirmedShifts(confirmedShifts) {
