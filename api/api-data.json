@@ -4,6 +4,7 @@
   "payload": {
     "names": [],
     "specialDays": [],
+    "workdayAvailability": [],
     "submissions": [],
     "counters": {
       "namesNextId": 1,

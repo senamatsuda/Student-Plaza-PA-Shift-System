@@ -59,12 +59,13 @@ DATA_FILE=./api/dev-data.json npm --prefix api start
 | --- | --- | --- |
 | PA 名簿 | LocalStorage: `paShiftNames` / Supabase または Render API | API 設定時はサーバー側 DB にも同期されます |
 | 特別日 | LocalStorage: `paShiftSpecialDays` / Supabase または Render API | 授業振替日などのメモを保存 |
+| 出勤日指定 | LocalStorage: `paShiftWorkdayAvailability` / Supabase または Render API | 翌月の出勤可否を保持 |
 | シフト提出 | LocalStorage: `paShiftSubmissions` / Supabase または Render API | 午前/午後/その他の時間帯を記録 |
 | 確定シフト | LocalStorage: `paShiftConfirmedShifts` / Supabase または Render API | Admin 画面で確定した結果を保持 |
 
 ### Supabase で利用するテーブル例
 
-Render API と同じ JSON 形式で同期するため、Supabase でも以下のテーブルを用意してください（すべて `TEXT` で揃えています）。
+Render API と同じ JSON 形式で同期するため、Supabase でも以下のテーブルを用意してください（型は用途に合わせています）。
 
 ```sql
 -- 1) names: PA 名簿
@@ -100,6 +101,12 @@ CREATE TABLE IF NOT EXISTS confirmed_shifts (
   start TEXT,
   "end" TEXT,
   note TEXT
+);
+
+-- 5) workday_availability: 出勤日指定 (翌月の出勤可否)
+CREATE TABLE IF NOT EXISTS workday_availability (
+  date TEXT PRIMARY KEY,
+  isAvailable BOOLEAN NOT NULL DEFAULT TRUE
 );
 ```
 

@@ -15,7 +15,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 /**
  * Supabaseからデータを読み込み、既存のペイロード形式に整形して返します。
- * @returns {Promise<{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object, counters: Object}>}
+ * @returns {Promise<{names: Array, specialDays: Array, workdayAvailability: Array, submissions: Array, confirmedShifts: Object, counters: Object}>}
  */
 async function read() {
     console.log('Reading data from Supabase...');
@@ -25,17 +25,22 @@ async function read() {
             { data: names, error: namesError },
             { data: specialDays, error: specialDaysError },
             { data: submissions, error: submissionsError },
-            { data: confirmedShifts, error: confirmedError }
+            { data: confirmedShifts, error: confirmedError },
+            { data: workdayAvailability, error: workdayAvailabilityError }
         ] = await Promise.all([
             supabase.from('names').select('*'),
             supabase.from('special_days').select('*'),
             supabase.from('submissions').select('*'),
-            supabase.from('confirmed_shifts').select('*')
+            supabase.from('confirmed_shifts').select('*'),
+            supabase.from('workday_availability').select('*')
         ]);
 
         // エラーチェック
-        if (namesError || specialDaysError || submissionsError || confirmedError) {
-            console.error('Supabase read error:', namesError || specialDaysError || submissionsError || confirmedError);
+        if (namesError || specialDaysError || submissionsError || confirmedError || workdayAvailabilityError) {
+            console.error(
+                'Supabase read error:',
+                namesError || specialDaysError || submissionsError || confirmedError || workdayAvailabilityError
+            );
             throw new Error('Database query failed.');
         }
 
@@ -44,6 +49,7 @@ async function read() {
         const payload = {
             names: names || [],
             specialDays: specialDays || [],
+            workdayAvailability: workdayAvailability || [],
             submissions: submissions || [],
             confirmedShifts: deserializeConfirmedShifts(confirmedShifts || []),
             // カウンターは Supabase の自動採番 (serial PK) に任せるため不要
@@ -61,35 +67,38 @@ async function read() {
 /**
  * ペイロードの内容をSupabaseの各テーブルに反映します。
  * 既存データとの差分のみを反映し、全削除を避けることで不要な書き込みを減らします。
- * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object}} payload
+ * @param {{names: Array, specialDays: Array, workdayAvailability: Array, submissions: Array, confirmedShifts: Object}} payload
  * @returns {Promise<void>}
  */
 async function write(payload) {
     console.log('Writing data to Supabase...');
-    const { names, specialDays, submissions, confirmedShifts } = payload;
+        const { names, specialDays, workdayAvailability, submissions, confirmedShifts } = payload;
 
     try {
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
         const normalizedSpecialDays = normalizeListWithIds(specialDays);
         const normalizedNames = normalizeListWithIds(names);
         const confirmedShiftRows = serializeConfirmedShifts(confirmedShifts || {});
+        const normalizedWorkdayAvailability = normalizeWorkdayAvailability(workdayAvailability);
 
         const [
             { data: currentSubmissions, error: fetchSubmissionsError },
             { data: currentConfirmedShifts, error: fetchConfirmedError },
             { data: currentSpecialDays, error: fetchSpecialDaysError },
-            { data: currentNames, error: fetchNamesError }
+            { data: currentNames, error: fetchNamesError },
+            { data: currentWorkdayAvailability, error: fetchWorkdayAvailabilityError }
         ] = await Promise.all([
             supabase.from('submissions').select('*'),
             supabase.from('confirmed_shifts').select('*'),
             supabase.from('special_days').select('*'),
-            supabase.from('names').select('*')
+            supabase.from('names').select('*'),
+            supabase.from('workday_availability').select('*')
         ]);
 
-        if (fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError) {
+        if (fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError || fetchWorkdayAvailabilityError) {
             console.error(
                 'Supabase fetch error:',
-                fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError
+                fetchSubmissionsError || fetchConfirmedError || fetchSpecialDaysError || fetchNamesError || fetchWorkdayAvailabilityError
             );
             throw new Error('Failed to fetch existing data before diff sync.');
         }
@@ -127,6 +136,16 @@ async function write(payload) {
             compareKeys: ['name']
         });
 
+        await syncTableWithDiff({
+            tableName: 'workday_availability',
+            nextRows: normalizedWorkdayAvailability,
+            currentRows: currentWorkdayAvailability || [],
+            keyFn: (row) => row.date,
+            compareKeys: ['isAvailable'],
+            onConflictKey: 'date',
+            deleteKey: 'date'
+        });
+
         console.log('Data successfully written to Supabase.');
 
     } catch (error) {
@@ -141,30 +160,33 @@ async function syncTableWithDiff({
     currentRows,
     keyFn,
     compareKeys,
-    allowIdReuse = false
+    allowIdReuse = false,
+    onConflictKey = 'id',
+    deleteKey = 'id'
 }) {
     const { rowsToUpsert, idsToDelete } = computeDiff({
         nextRows,
         currentRows,
         keyFn,
         compareKeys,
-        allowIdReuse
+        allowIdReuse,
+        deleteKey
     });
 
     if (idsToDelete.length) {
-        const { error: deleteError } = await supabase.from(tableName).delete().in('id', idsToDelete);
+        const { error: deleteError } = await supabase.from(tableName).delete().in(deleteKey, idsToDelete);
         if (deleteError) throw deleteError;
     }
 
     if (rowsToUpsert.length) {
         const { error: upsertError } = await supabase
             .from(tableName)
-            .upsert(rowsToUpsert, { onConflict: 'id' });
+            .upsert(rowsToUpsert, { onConflict: onConflictKey });
         if (upsertError) throw upsertError;
     }
 }
 
-function computeDiff({ nextRows, currentRows, keyFn, compareKeys, allowIdReuse }) {
+function computeDiff({ nextRows, currentRows, keyFn, compareKeys, allowIdReuse, deleteKey }) {
     const currentMap = new Map();
     (currentRows || []).forEach((row) => {
         const key = keyFn(row);
@@ -199,7 +221,7 @@ function computeDiff({ nextRows, currentRows, keyFn, compareKeys, allowIdReuse }
 
     const idsToDelete = (currentRows || [])
         .filter((row) => !seenKeys.has(keyFn(row)))
-        .map((row) => row.id)
+        .map((row) => row[deleteKey])
         .filter((id) => id !== undefined && id !== null);
 
     return { rowsToUpsert, idsToDelete };
@@ -321,6 +343,18 @@ function normalizeSubmissionsForInsert(entries) {
             shiftType: entry.shiftType,
             start: entry.start ?? null,
             end: entry.end ?? null
+        });
+        return acc;
+    }, []);
+}
+
+function normalizeWorkdayAvailability(entries) {
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+        if (typeof entry.date !== 'string') return acc;
+        acc.push({
+            date: entry.date,
+            isAvailable: entry.isAvailable !== false
         });
         return acc;
     }, []);
