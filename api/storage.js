@@ -141,7 +141,7 @@ async function write(payload) {
             nextRows: normalizedWorkdayAvailability,
             currentRows: currentWorkdayAvailability || [],
             keyFn: (row) => row.date,
-            compareKeys: ['is_available'],
+            compareKeys: ['isAvailable'],
             onConflictKey: 'date',
             deleteKey: 'date'
         });
@@ -360,7 +360,7 @@ function normalizeWorkdayAvailability(entries) {
                   : true;
         acc.push({
             date: entry.date,
-            is_available: isAvailable !== false
+            isAvailable: isAvailable !== false
         });
         return acc;
     }, []);
