@@ -27,7 +27,6 @@ const LOCAL_STORAGE_KEYS = {
   specialDays: "paShiftSpecialDays",
   submissions: "paShiftSubmissions",
   confirmedShifts: "paShiftConfirmedShifts",
-  workdayAvailability: "paShiftWorkdayAvailability",
 };
 const ID_COUNTER_KEYS = {
   names: "paShiftNamesNextId",
@@ -48,8 +47,6 @@ let submissionEntries = [];
 let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
-let workdayAvailabilityEntries = [];
-let workdayAvailabilityMap = {};
 let paNames = [];
 let confirmedShiftMap = {};
 
@@ -78,12 +75,6 @@ const specialDayDateInput = document.getElementById("specialDayDate");
 const specialDayNoteInput = document.getElementById("specialDayNote");
 const specialDayList = document.getElementById("specialDayList");
 const specialDayStatus = document.getElementById("specialDayStatus");
-const workdayAvailabilityList = document.getElementById(
-  "workdayAvailabilityList"
-);
-const workdayAvailabilityMonth = document.getElementById(
-  "workdayAvailabilityMonth"
-);
 const paNameForm = document.getElementById("paNameForm");
 const paNameInput = document.getElementById("paNameInput");
 const paNameStatus = document.getElementById("paNameStatus");
@@ -291,7 +282,6 @@ async function init() {
   setupAdminSubtabs();
   await loadHolidayData();
   await initializeSpecialDays();
-  await initializeWorkdayAvailability();
   await refreshSubmissions();
   loadConfirmedShiftMap();
   renderCalendar();
@@ -331,12 +321,6 @@ async function init() {
   }
   if (paNameList) {
     paNameList.addEventListener("click", handlePaNameListClick);
-  }
-  if (workdayAvailabilityList) {
-    workdayAvailabilityList.addEventListener(
-      "change",
-      handleWorkdayAvailabilityChange
-    );
   }
   window.addEventListener("online", handleOnlineStatusChange);
   window.addEventListener("offline", handleOfflineStatusChange);
@@ -517,19 +501,6 @@ function renderCalendar() {
       customEnd.disabled = true;
       clone.setAttribute("aria-disabled", "true");
     }
-    const isUnavailable =
-      !isHoliday && workdayAvailabilityMap[dateKey] === false;
-    if (isUnavailable) {
-      noteTexts.push("出勤なし（管理者指定）");
-      noteLabel.textContent = noteTexts.join(" / ");
-      noteLabel.hidden = false;
-      clone.classList.add("is-unavailable");
-      shiftSelect.disabled = true;
-      shiftSelect.innerHTML = `<option value="">出勤なし</option>`;
-      customStart.disabled = true;
-      customEnd.disabled = true;
-      clone.setAttribute("aria-disabled", "true");
-    }
 
     populateTimeOptions(customStart);
     populateTimeOptions(customEnd);
@@ -546,7 +517,7 @@ function renderCalendar() {
       customTimeWrapper.classList.toggle("is-visible", isOther);
     };
 
-    if (savedEntry && !isHoliday && !isUnavailable) {
+    if (savedEntry && !isHoliday) {
       shiftSelect.value = savedEntry.shiftType;
       if (savedEntry.shiftType === "other") {
         if (savedEntry.start) {
@@ -1521,11 +1492,6 @@ async function initializeSpecialDays() {
   renderSpecialDayList();
 }
 
-async function initializeWorkdayAvailability() {
-  await refreshWorkdayAvailability();
-  renderWorkdayAvailabilityList();
-}
-
 async function refreshSpecialDays() {
   const stored = readStorageArray(LOCAL_STORAGE_KEYS.specialDays);
   specialDayEntries = stored
@@ -1552,50 +1518,6 @@ function rebuildSpecialDayMap() {
     acc[entry.date] = entry.note;
     return acc;
   }, {});
-}
-
-async function refreshWorkdayAvailability() {
-  const stored = readStorageArray(LOCAL_STORAGE_KEYS.workdayAvailability);
-  workdayAvailabilityEntries = stored
-    .map((entry) => ({
-      date: entry?.date,
-      isAvailable: entry?.isAvailable,
-    }))
-    .filter((entry) => typeof entry.date === "string");
-  rebuildWorkdayAvailabilityMap();
-}
-
-function rebuildWorkdayAvailabilityMap() {
-  workdayAvailabilityMap = workdayAvailabilityEntries.reduce((acc, entry) => {
-    if (entry.isAvailable === false) {
-      acc[entry.date] = false;
-    }
-    return acc;
-  }, {});
-}
-
-function persistWorkdayAvailability() {
-  workdayAvailabilityEntries = Object.entries(workdayAvailabilityMap).map(
-    ([date, isAvailable]) => ({
-      date,
-      isAvailable,
-    })
-  );
-  writeStorageArray(
-    LOCAL_STORAGE_KEYS.workdayAvailability,
-    workdayAvailabilityEntries
-  );
-  scheduleRemotePush();
-}
-
-function setWorkdayAvailability(dateKey, isAvailable) {
-  if (!dateKey) return;
-  if (isAvailable) {
-    delete workdayAvailabilityMap[dateKey];
-  } else {
-    workdayAvailabilityMap[dateKey] = false;
-  }
-  persistWorkdayAvailability();
 }
 
 function renderSpecialDayList() {
@@ -1633,83 +1555,6 @@ function renderSpecialDayList() {
     fragment.appendChild(item);
   });
   specialDayList.appendChild(fragment);
-}
-
-function renderWorkdayAvailabilityList() {
-  if (!workdayAvailabilityList) return;
-  const nextMonth = getNextMonthDate();
-  const year = nextMonth.getFullYear();
-  const month = nextMonth.getMonth();
-  const monthLabel = formatMonthLabel(year, month);
-  if (workdayAvailabilityMonth) {
-    workdayAvailabilityMonth.textContent = `${monthLabel}（翌月）`;
-  }
-  const weekdays = getWeekdays(year, month);
-  workdayAvailabilityList.innerHTML = "";
-  if (!weekdays.length) {
-    workdayAvailabilityList.innerHTML =
-      '<li class="workday-availability-empty">対象の平日が見つかりません</li>';
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  weekdays.forEach((date) => {
-    const dateKey = formatDateKey(date);
-    const holidayName = getHolidayName(dateKey);
-    const isHoliday = Boolean(holidayName);
-    const isAvailable = isHoliday
-      ? false
-      : workdayAvailabilityMap[dateKey] !== false;
-    const item = document.createElement("li");
-    item.className = "workday-availability-item";
-    item.dataset.dateKey = dateKey;
-    if (isHoliday) {
-      item.classList.add("is-holiday");
-    }
-    const notes = [];
-    if (holidayName) {
-      notes.push(`${holidayName}（祝日）`);
-    }
-    item.innerHTML = `
-      <div class="workday-availability-date">
-        <div class="workday-availability-day">${formatDisplayDate(date)}</div>
-        ${
-          notes.length
-            ? `<div class="workday-availability-note">${notes.join(" / ")}</div>`
-            : ""
-        }
-      </div>
-      <label class="toggle">
-        <input
-          type="checkbox"
-          class="toggle__input"
-          ${isAvailable ? "checked" : ""}
-          ${isHoliday ? "disabled" : ""}
-        />
-        <span class="toggle__track" aria-hidden="true"></span>
-        <span class="toggle__label">${
-          isHoliday ? "なし" : isAvailable ? "あり" : "なし"
-        }</span>
-      </label>
-    `;
-    fragment.appendChild(item);
-  });
-  workdayAvailabilityList.appendChild(fragment);
-}
-
-function handleWorkdayAvailabilityChange(event) {
-  const input = event.target.closest(".toggle__input");
-  if (!input) return;
-  const item = input.closest(".workday-availability-item");
-  if (!item) return;
-  const dateKey = item.dataset.dateKey;
-  if (!dateKey) return;
-  setWorkdayAvailability(dateKey, input.checked);
-  const label = item.querySelector(".toggle__label");
-  if (label) {
-    label.textContent = input.checked ? "あり" : "なし";
-  }
-  renderCalendar();
 }
 
 async function handleSpecialDaySubmit(event) {
@@ -1984,7 +1829,6 @@ function collectLocalDataset() {
   return {
     names: paNames,
     specialDays: specialDayEntries,
-    workdayAvailability: workdayAvailabilityEntries,
     submissions: submissionEntries,
     confirmedShifts: confirmedShiftMap,
     counters: {
@@ -2003,12 +1847,6 @@ function applyRemoteDataset(dataset) {
 
     if (Array.isArray(dataset.specialDays)) {
       writeStorageArray(LOCAL_STORAGE_KEYS.specialDays, dataset.specialDays);
-    }
-    if (Array.isArray(dataset.workdayAvailability)) {
-      writeStorageArray(
-        LOCAL_STORAGE_KEYS.workdayAvailability,
-        dataset.workdayAvailability
-      );
     }
     if (Array.isArray(dataset.submissions)) {
       writeStorageArray(LOCAL_STORAGE_KEYS.submissions, dataset.submissions);
