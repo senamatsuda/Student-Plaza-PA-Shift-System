@@ -50,7 +50,7 @@ async function read() {
             names: names || [],
             specialDays: specialDays || [],
             workdayAvailability: normalizeWorkdayAvailabilityForClient(workdayAvailability || []),
-            submissions: submissions || [],
+            submissions: normalizeSubmissionsForClient(submissions || []),
             confirmedShifts: deserializeConfirmedShifts(confirmedShifts || []),
             // カウンターは Supabase の自動採番 (serial PK) に任せるため不要
             counters: {}
@@ -72,7 +72,7 @@ async function read() {
  */
 async function write(payload) {
     console.log('Writing data to Supabase...');
-        const { names, specialDays, workdayAvailability, submissions, confirmedShifts } = payload;
+        const { names, specialDays, workdayAvailability, submissions, confirmedShifts } = payload || {};
 
     try {
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
@@ -108,7 +108,7 @@ async function write(payload) {
             nextRows: normalizedSubmissions,
             currentRows: currentSubmissions || [],
             keyFn: (row) => row.id,
-            compareKeys: ['name', 'date', 'monthKey', 'shiftType', 'start', 'end']
+            compareKeys: ['name', 'date', 'month_key', 'shift_type', 'start', 'end']
         });
 
         await syncTableWithDiff({
@@ -141,7 +141,7 @@ async function write(payload) {
             nextRows: normalizedWorkdayAvailability,
             currentRows: currentWorkdayAvailability || [],
             keyFn: (row) => row.date,
-            compareKeys: ['isAvailable'],
+            compareKeys: ['is_available'],
             onConflictKey: 'date',
             deleteKey: 'date'
         });
@@ -251,7 +251,7 @@ function serializeConfirmedShifts(confirmedShifts) {
                 return {
                     name: parsed.name,
                     date: parsed.date,
-                    shiftType,
+                    shift_type: shiftType,
                     start: parsed.start || null,
                     end: parsed.end || null,
                     note: parsed.label || null
@@ -293,7 +293,7 @@ function buildEntryKeyFromRow(row) {
     if (!row) return null;
     const date = row.date || '';
     const name = row.name || '';
-    const shiftType = row.shiftType || '';
+    const shiftType = row.shiftType || row.shift_type || '';
     const slot = shiftType || '';
     const label = row.note || row.name || '';
     const start = row.start || '';
@@ -339,10 +339,26 @@ function normalizeSubmissionsForInsert(entries) {
             id,
             name: entry.name,
             date: entry.date,
-            monthKey: entry.monthKey,
-            shiftType: entry.shiftType,
+            month_key: entry.monthKey,
+            shift_type: entry.shiftType,
             start: entry.start ?? null,
             end: entry.end ?? null
+        });
+        return acc;
+    }, []);
+}
+
+function normalizeSubmissionsForClient(entries) {
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+        acc.push({
+            id: entry.id,
+            name: entry.name,
+            date: entry.date,
+            monthKey: entry.monthKey ?? entry.month_key ?? '',
+            shiftType: entry.shiftType ?? entry.shift_type ?? '',
+            start: entry.start ?? entry.start_time ?? null,
+            end: entry.end ?? entry.end_time ?? null
         });
         return acc;
     }, []);
@@ -360,7 +376,7 @@ function normalizeWorkdayAvailability(entries) {
                   : true;
         acc.push({
             date: entry.date,
-            isAvailable: isAvailable !== false
+            is_available: isAvailable !== false
         });
         return acc;
     }, []);
