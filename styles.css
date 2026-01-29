@@ -317,6 +317,138 @@ button:hover {
   gap: 1rem;
 }
 
+.workday-availability {
+  border: 1px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.workday-availability__header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.workday-availability__meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  color: #475467;
+}
+
+.workday-availability__month {
+  font-weight: 600;
+  color: #1f2a37;
+}
+
+.workday-availability__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.workday-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: #fff;
+}
+
+.workday-item__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.workday-item__date {
+  font-weight: 600;
+}
+
+.workday-item__note {
+  font-size: 0.85rem;
+  color: #b42318;
+}
+
+.workday-item__status {
+  font-size: 0.85rem;
+  color: #475467;
+}
+
+.workday-item__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: pointer;
+}
+
+.toggle input {
+  appearance: none;
+  width: 44px;
+  height: 24px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  position: relative;
+  transition: background 0.2s ease;
+  cursor: pointer;
+}
+
+.toggle input::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  top: 3px;
+  left: 3px;
+  box-shadow: 0 1px 2px rgb(15 23 42 / 0.2);
+  transition: transform 0.2s ease;
+}
+
+.toggle input:checked {
+  background: var(--accent);
+}
+
+.toggle input:checked::after {
+  transform: translateX(20px);
+}
+
+.toggle input:disabled {
+  background: #cbd5f5;
+  cursor: not-allowed;
+}
+
+.workday-item.is-holiday {
+  background: #f1f5f9;
+  color: var(--holiday-text);
+}
+
+.workday-item.is-unavailable {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
 .special-day-form {
   display: flex;
   flex-wrap: wrap;
@@ -538,8 +670,18 @@ button:hover {
   color: var(--holiday-text);
 }
 
+.shift-row.is-unavailable-day {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #7f1d1d;
+}
+
 .shift-row.is-holiday .shift-row__note {
   color: var(--holiday-text);
+}
+
+.shift-row.is-unavailable-day .shift-row__note {
+  color: #b42318;
 }
 
 .shift-row.is-holiday select,
@@ -548,8 +690,18 @@ button:hover {
   color: #94a3b8;
 }
 
+.shift-row.is-unavailable-day select,
+.shift-row.is-unavailable-day .custom-time select {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .shift-row.is-holiday .shift-row__select {
   opacity: 0.7;
+}
+
+.shift-row.is-unavailable-day .shift-row__select {
+  opacity: 0.8;
 }
 
 .shift-row.special-day:not(.is-holiday) {
