@@ -203,12 +203,16 @@
               <div class="workday-availability">
                 <div class="workday-availability__header">
                   <div>
-                    <h3>翌月の出勤日指定</h3>
+                    <h3>出勤日指定</h3>
                     <p>
-                      翌月の平日について、出勤あり・なしを切り替えできます。祝日は自動で勤務なしになります。
+                      対象月の平日について、出勤あり・なしを切り替えできます。デフォルトは翌月です。祝日は自動で勤務なしになります。
                     </p>
                   </div>
                   <div class="workday-availability__meta">
+                    <label class="workday-availability__picker">
+                      <span>対象月</span>
+                      <select id="workdayAvailabilityMonthSelect"></select>
+                    </label>
                     <span
                       id="workdayAvailabilityMonth"
                       class="workday-availability__month"

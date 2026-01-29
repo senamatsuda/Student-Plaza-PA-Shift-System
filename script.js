@@ -87,6 +87,9 @@ const workdayAvailabilityStatus = document.getElementById(
 const workdayAvailabilityMonth = document.getElementById(
   "workdayAvailabilityMonth"
 );
+const workdayAvailabilityMonthSelect = document.getElementById(
+  "workdayAvailabilityMonthSelect"
+);
 const paNameForm = document.getElementById("paNameForm");
 const paNameInput = document.getElementById("paNameInput");
 const paNameStatus = document.getElementById("paNameStatus");
@@ -98,6 +101,9 @@ const RENDER_UNAVAILABLE_MESSAGE =
   "Render と接続できないため、シフトを提出できません。";
 
 const template = document.getElementById("shiftRowTemplate");
+const WORKDAY_MONTH_OPTION_COUNT = 12;
+
+let selectedWorkdayAvailabilityMonth = "";
 
 function createStorageBackend() {
   try {
@@ -333,6 +339,12 @@ async function init() {
     workdayAvailabilityList.addEventListener(
       "change",
       handleWorkdayAvailabilityChange
+    );
+  }
+  if (workdayAvailabilityMonthSelect) {
+    workdayAvailabilityMonthSelect.addEventListener(
+      "change",
+      handleWorkdayAvailabilityMonthChange
     );
   }
   if (paNameForm) {
@@ -1645,11 +1657,9 @@ function updateSpecialDayStatus(message, color = "#0f7b6c") {
 
 async function initializeWorkdayAvailability() {
   await refreshWorkdayAvailability();
-  const updated = ensureNextMonthWorkdayAvailabilityDefaults();
-  if (updated) {
-    persistWorkdayAvailability();
-  }
-  renderWorkdayAvailability();
+  buildWorkdayAvailabilityMonthOptions();
+  const defaultMonth = formatMonthInput(getNextMonthDate());
+  setSelectedWorkdayAvailabilityMonth(defaultMonth);
 }
 
 async function refreshWorkdayAvailability() {
@@ -1683,10 +1693,7 @@ function rebuildWorkdayAvailabilityMap() {
   }, {});
 }
 
-function ensureNextMonthWorkdayAvailabilityDefaults() {
-  const nextMonthDate = getNextMonthDate();
-  const year = nextMonthDate.getFullYear();
-  const month = nextMonthDate.getMonth();
+function ensureWorkdayAvailabilityDefaults(year, month) {
   const weekdays = getWeekdays(year, month);
   if (!weekdays.length) return false;
   let changed = false;
@@ -1720,6 +1727,47 @@ function ensureNextMonthWorkdayAvailabilityDefaults() {
   return changed;
 }
 
+function buildWorkdayAvailabilityMonthOptions() {
+  if (!workdayAvailabilityMonthSelect) return;
+  workdayAvailabilityMonthSelect.innerHTML = "";
+  const baseDate = new Date();
+  for (let offset = 1; offset <= WORKDAY_MONTH_OPTION_COUNT; offset += 1) {
+    const date = new Date(
+      baseDate.getFullYear(),
+      baseDate.getMonth() + offset,
+      1
+    );
+    const option = document.createElement("option");
+    option.value = formatMonthInput(date);
+    option.textContent = formatMonthLabel(date.getFullYear(), date.getMonth());
+    workdayAvailabilityMonthSelect.appendChild(option);
+  }
+}
+
+function getSelectedWorkdayAvailabilityMonth() {
+  if (workdayAvailabilityMonthSelect?.value) {
+    return workdayAvailabilityMonthSelect.value;
+  }
+  if (selectedWorkdayAvailabilityMonth) {
+    return selectedWorkdayAvailabilityMonth;
+  }
+  return formatMonthInput(getNextMonthDate());
+}
+
+function setSelectedWorkdayAvailabilityMonth(value) {
+  if (!value) return;
+  selectedWorkdayAvailabilityMonth = value;
+  if (workdayAvailabilityMonthSelect) {
+    workdayAvailabilityMonthSelect.value = value;
+  }
+  const { year, month } = parseMonthInput(value);
+  const updated = ensureWorkdayAvailabilityDefaults(year, month);
+  if (updated) {
+    persistWorkdayAvailability();
+  }
+  renderWorkdayAvailability();
+}
+
 function resolveWorkdayAvailability(dateKey, holidayName) {
   if (holidayName) return false;
   if (workdayAvailabilityMap[dateKey] == null) {
@@ -1730,9 +1778,9 @@ function resolveWorkdayAvailability(dateKey, holidayName) {
 
 function renderWorkdayAvailability() {
   if (!workdayAvailabilityList) return;
-  const nextMonthDate = getNextMonthDate();
-  const year = nextMonthDate.getFullYear();
-  const month = nextMonthDate.getMonth();
+  const { year, month } = parseMonthInput(
+    getSelectedWorkdayAvailabilityMonth()
+  );
   const weekdays = getWeekdays(year, month);
 
   if (workdayAvailabilityMonth) {
@@ -1810,6 +1858,14 @@ function renderWorkdayAvailability() {
   });
 
   workdayAvailabilityList.appendChild(fragment);
+}
+
+function handleWorkdayAvailabilityMonthChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) return;
+  if (!target.value) return;
+  setSelectedWorkdayAvailabilityMonth(target.value);
+  updateWorkdayAvailabilityStatus("");
 }
 
 function handleWorkdayAvailabilityChange(event) {

@@ -182,7 +182,8 @@ main {
 
 .month-picker,
 .name-select,
-.admin-tools label {
+.admin-tools label,
+.workday-availability__picker {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
