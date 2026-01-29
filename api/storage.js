@@ -49,7 +49,7 @@ async function read() {
         const payload = {
             names: names || [],
             specialDays: specialDays || [],
-            workdayAvailability: workdayAvailability || [],
+            workdayAvailability: normalizeWorkdayAvailabilityForClient(workdayAvailability || []),
             submissions: submissions || [],
             confirmedShifts: deserializeConfirmedShifts(confirmedShifts || []),
             // カウンターは Supabase の自動採番 (serial PK) に任せるため不要
@@ -141,7 +141,7 @@ async function write(payload) {
             nextRows: normalizedWorkdayAvailability,
             currentRows: currentWorkdayAvailability || [],
             keyFn: (row) => row.date,
-            compareKeys: ['isAvailable'],
+            compareKeys: ['is_available'],
             onConflictKey: 'date',
             deleteKey: 'date'
         });
@@ -352,9 +352,33 @@ function normalizeWorkdayAvailability(entries) {
     return (entries || []).reduce((acc, entry) => {
         if (!entry || typeof entry !== 'object') return acc;
         if (typeof entry.date !== 'string') return acc;
+        const isAvailable =
+            entry.isAvailable !== undefined
+                ? entry.isAvailable
+                : entry.is_available !== undefined
+                  ? entry.is_available
+                  : true;
         acc.push({
             date: entry.date,
-            isAvailable: entry.isAvailable !== false
+            is_available: isAvailable !== false
+        });
+        return acc;
+    }, []);
+}
+
+function normalizeWorkdayAvailabilityForClient(entries) {
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+        if (typeof entry.date !== 'string') return acc;
+        const isAvailable =
+            entry.is_available !== undefined
+                ? entry.is_available
+                : entry.isAvailable !== undefined
+                  ? entry.isAvailable
+                  : true;
+        acc.push({
+            date: entry.date,
+            isAvailable: isAvailable !== false
         });
         return acc;
     }, []);
