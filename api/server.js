@@ -85,6 +85,7 @@ function buildCounts(payload) {
   return {
     names: payload.names?.length || 0,
     specialDays: payload.specialDays?.length || 0,
+    workdayAvailability: payload.workdayAvailability?.length || 0,
     submissions: payload.submissions?.length || 0,
     confirmedShifts: Object.keys(payload.confirmedShifts || {}).length,
   };

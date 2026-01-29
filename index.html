@@ -121,6 +121,16 @@
                 特別日追加
               </button>
               <button
+                id="adminSubtabWorkday"
+                class="admin-subtab-button"
+                data-subtab-target="workdayTabPanel"
+                role="tab"
+                aria-controls="workdayTabPanel"
+                aria-selected="false"
+              >
+                出勤日指定
+              </button>
+              <button
                 id="adminSubtabPaEdit"
                 class="admin-subtab-button"
                 data-subtab-target="paManageTabPanel"
@@ -178,6 +188,29 @@
                 <ul
                   id="specialDayList"
                   class="special-day-list"
+                  aria-live="polite"
+                ></ul>
+              </div>
+            </section>
+
+            <section
+              class="admin-subtab-panel"
+              id="workdayTabPanel"
+              role="tabpanel"
+              aria-labelledby="adminSubtabWorkday"
+              aria-hidden="true"
+            >
+              <div class="workday-availability">
+                <div>
+                  <h3>出勤日指定</h3>
+                  <p>
+                    翌月の平日について出勤のあり/なしを切り替えられます。祝日は自動で「なし」になります。
+                  </p>
+                  <p class="workday-availability__month" id="workdayAvailabilityMonth"></p>
+                </div>
+                <ul
+                  id="workdayAvailabilityList"
+                  class="workday-availability-list"
                   aria-live="polite"
                 ></ul>
               </div>

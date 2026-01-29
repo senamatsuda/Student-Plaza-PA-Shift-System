@@ -352,6 +352,118 @@ button:hover {
   gap: 1rem;
 }
 
+.workday-availability {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.workday-availability__month {
+  margin-top: 0.35rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.workday-availability-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.workday-availability-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.workday-availability-item.is-holiday {
+  border-color: #fecaca;
+  background: #fff5f5;
+}
+
+.workday-availability-day {
+  font-weight: 600;
+}
+
+.workday-availability-note {
+  color: #b42318;
+  font-size: 0.85rem;
+  margin-top: 0.2rem;
+}
+
+.workday-availability-empty {
+  color: #64748b;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border: 1px dashed var(--border-color);
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: #334155;
+  position: relative;
+}
+
+.toggle__input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle__track {
+  width: 48px;
+  height: 26px;
+  border-radius: 999px;
+  background: #cbd5f5;
+  position: relative;
+  transition: background 0.2s ease;
+}
+
+.toggle__track::after {
+  content: "";
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.2);
+}
+
+.toggle__input:checked + .toggle__track {
+  background: #38bdf8;
+}
+
+.toggle__input:checked + .toggle__track::after {
+  transform: translateX(22px);
+}
+
+.toggle__input:disabled + .toggle__track {
+  background: #e2e8f0;
+  cursor: not-allowed;
+}
+
+.toggle__input:disabled + .toggle__track::after {
+  box-shadow: none;
+}
+
+.toggle__label {
+  min-width: 2rem;
+  text-align: center;
+}
+
 .pa-name-form {
   display: flex;
   flex-wrap: wrap;
@@ -536,6 +648,12 @@ button:hover {
   background: var(--holiday-disabled);
   border-color: #cbd5f5;
   color: var(--holiday-text);
+}
+
+.shift-row.is-unavailable {
+  background: #f8fafc;
+  border-color: #cbd5f5;
+  color: #475569;
 }
 
 .shift-row.is-holiday .shift-row__note {
