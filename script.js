@@ -59,6 +59,7 @@ const form = document.getElementById("shiftForm");
 const formStatus = document.getElementById("formStatus");
 const studentNameSelect = document.getElementById("studentName");
 const adminTableWrapper = document.getElementById("adminTableWrapper");
+const unsubmittedList = document.getElementById("unsubmittedList");
 const confirmedSummaryWrapper = document.getElementById(
   "confirmedSummaryWrapper"
 );
@@ -846,7 +847,53 @@ function renderAdminTable() {
   table.appendChild(tbody);
   adminTableWrapper.appendChild(table);
 
+  renderUnsubmittedList();
   renderConfirmedSummaryTable();
+}
+
+function renderUnsubmittedList() {
+  if (!unsubmittedList) return;
+
+  const { year, month } = parseMonthInput(
+    adminMonthInput.value || monthPicker.value
+  );
+  const monthKey = formatMonthKey(year, month);
+  const submittedNames = new Set(
+    submissionEntries
+      .filter((entry) => entry.monthKey === monthKey && entry.name)
+      .map((entry) => entry.name)
+  );
+  const unsubmittedNames = paNames
+    .map((entry) => entry.name)
+    .filter((name) => !submittedNames.has(name))
+    .sort((a, b) => a.localeCompare(b, "ja"));
+
+  unsubmittedList.innerHTML = "";
+
+  if (!paNames.length) {
+    const empty = document.createElement("p");
+    empty.className = "unsubmitted-empty";
+    empty.textContent = "PAメンバーが登録されていません。";
+    unsubmittedList.appendChild(empty);
+    return;
+  }
+
+  if (!unsubmittedNames.length) {
+    const empty = document.createElement("p");
+    empty.className = "unsubmitted-empty";
+    empty.textContent = "未提出者はいません。";
+    unsubmittedList.appendChild(empty);
+    return;
+  }
+
+  const list = document.createElement("ul");
+  list.className = "unsubmitted-list";
+  unsubmittedNames.forEach((name) => {
+    const item = document.createElement("li");
+    item.textContent = name;
+    list.appendChild(item);
+  });
+  unsubmittedList.appendChild(list);
 }
 
 function renderConfirmedSummaryTable() {
