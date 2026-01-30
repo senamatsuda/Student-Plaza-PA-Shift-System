@@ -604,8 +604,14 @@ button:hover {
   border-radius: 12px;
 }
 
-.confirmed-summary {
+.admin-summary-stack {
   margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.confirmed-summary {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
@@ -617,7 +623,6 @@ button:hover {
 }
 
 .unsubmitted-summary {
-  margin-top: 1.5rem;
   display: flex;
   flex-direction: column;
   gap: 0.6rem;

@@ -291,31 +291,33 @@
                 </label>
               </div>
               <div id="adminTableWrapper" class="table-wrapper" aria-live="polite"></div>
-              <div class="unsubmitted-summary">
-                <div>
-                  <h4>シフト未提出者</h4>
-                  <p class="unsubmitted-summary__description">
-                    対象月のシフトがまだ提出されていないPAメンバーです。
-                  </p>
+              <div class="admin-summary-stack">
+                <div class="unsubmitted-summary">
+                  <div>
+                    <h4>シフト未提出者</h4>
+                    <p class="unsubmitted-summary__description">
+                      対象月のシフトがまだ提出されていないPAメンバーです。
+                    </p>
+                  </div>
+                  <div
+                    id="unsubmittedList"
+                    class="unsubmitted-list-wrapper"
+                    aria-live="polite"
+                  ></div>
                 </div>
-                <div
-                  id="unsubmittedList"
-                  class="unsubmitted-list-wrapper"
-                  aria-live="polite"
-                ></div>
-              </div>
-              <div class="confirmed-summary">
-                <div>
-                  <h4>確定シフト集計</h4>
-                  <p class="confirmed-summary__description">
-                    午前・午後の確定回数を名前ごとに表示します。
-                  </p>
+                <div class="confirmed-summary">
+                  <div>
+                    <h4>確定シフト集計</h4>
+                    <p class="confirmed-summary__description">
+                      午前・午後の確定回数を名前ごとに表示します。
+                    </p>
+                  </div>
+                  <div
+                    id="confirmedSummaryWrapper"
+                    class="table-wrapper"
+                    aria-live="polite"
+                  ></div>
                 </div>
-                <div
-                  id="confirmedSummaryWrapper"
-                  class="table-wrapper"
-                  aria-live="polite"
-                ></div>
               </div>
             </section>
           </div>
