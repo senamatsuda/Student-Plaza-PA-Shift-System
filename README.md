@@ -1,9 +1,8 @@
 # 学生プラザ3F 留学交流グループ シフト調整システム
 
 学生 (PA) のシフト提出と管理者向け集計を 1 つの静的アプリで完結できるツールです。
-Supabase に置いたデータベース (本番環境) または Render (無料 Web Service + 永続ディスク) のシンプルな
-JSON API と同期でき、GitHub Pages 等の静的ホスティングでも共通データを扱えます。API を設定しない場合
-はブラウザの LocalStorage のみで動作します。
+Supabase に置いたデータベース (本番環境) と同期でき、GitHub Pages 等の静的ホスティングでも共通データを扱えます。
+API を設定しない場合はブラウザの LocalStorage のみで動作します。
 
 ## 主な画面
 
@@ -25,18 +24,15 @@ JSON API と同期でき、GitHub Pages 等の静的ホスティングでも共�
 
 > ⚠️ LocalStorage が利用できない環境 (シークレットウィンドウなど) の場合は、ページを閉じるとデータが失われます。
 
-## GitHub Pages + Render API で運用する
+## GitHub Pages + API で運用する
 
 1. **フロントエンドを GitHub Pages へ配置**
    - `main` ブランチを Pages (例: `https://<user>.github.io/Student-Plaza-PA-Shift-System/`) で公開します。
    - UI 側の更新は `index.html`, `script.js`, `styles.css`, `config.js` を編集して push するだけです。
 2. **バックエンドの選択**
-   - **本番運用:** Supabase に格納したデータベースを API Gateway 経由で公開し、その URL を `config.js` に設定します。
-   - **デモ/小規模運用:** Render 無料枠に JSON API をデプロイできます。`render.yaml` により
-     - `student-plaza-pa-shift-api` (Web Service, Node 18, 永続ディスク `/data` 付き)
-     - `student-plaza-pa-shift-system` (Static Site: GitHub Pages を使う場合は停止可)
-     の 2 サービスが作成されます。
-   - Render API では `DATA_FILE=/data/data.json` が設定され、Render の永続ディスクに JSON が保存されます。
+   - **本番運用:** Supabase に格納したデータベースを API サーバー経由で公開し、その URL を `config.js` に設定します。
+   - **Render でのホスティング:** `render.yaml` で API サーバーとフロントエンドの両方を立ち上げる構成例があります。Supabase に接続する場合は Render の環境変数に `SUPABASE_URL` と `SUPABASE_SERVICE_KEY` を設定してください。
+     - `DATA_FILE` は現行の Supabase 版 API では利用しないため、必要に応じて `render.yaml` 側で削除してください。
 3. **API の URL をフロントに設定**
    - Supabase や Render など、利用するバックエンドで払い出された API URL を `config.js` の `apiBaseUrl` に入力し、GitHub に push します。
    - ページを再読み込みすると上部の同期ステータスが「同期済み」になります。失敗した場合は警告/エラー表示になります。
@@ -49,10 +45,19 @@ JSON API と同期でき、GitHub Pages 等の静的ホスティングでも共�
 
 ```
 npm --prefix api install   # ネットワーク制限がある環境では失敗することがあります
-DATA_FILE=./api/dev-data.json npm --prefix api start
+SUPABASE_URL=... SUPABASE_SERVICE_KEY=... npm --prefix api start
 ```
 
 別ターミナルで `python -m http.server 8000` などを実行してフロントエンドを開き、`config.js` の `apiBaseUrl` を `http://localhost:10000` に変更してください。
+`SUPABASE_URL` / `SUPABASE_SERVICE_KEY` を設定しないと API が起動しないため、ローカルで試す場合も環境変数が必須です。
+
+### API サーバーの環境変数
+
+| 変数名 | 役割 | 例 |
+| --- | --- | --- |
+| `SUPABASE_URL` | Supabase プロジェクトの URL | `https://xxxx.supabase.co` |
+| `SUPABASE_SERVICE_KEY` | Supabase の Service Role Key | `eyJhbGci...` |
+| `PORT` | API サーバーの待受ポート (任意) | `10000` |
 
 ## データの保存について
 
