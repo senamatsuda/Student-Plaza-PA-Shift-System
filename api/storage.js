@@ -163,19 +163,19 @@ async function syncWorkdayAvailabilityWithDiff({ nextRows, currentRows }) {
     const currentMap = new Map(
         (currentRows || [])
             .filter((row) => typeof row?.date === 'string')
-            .map((row) => [row.date, Boolean(row.isAvailable)])
+            .map((row) => [row.date, getAvailabilityValue(row)])
     );
 
     const nextMap = new Map(
         (nextRows || [])
             .filter((row) => typeof row?.date === 'string')
-            .map((row) => [row.date, Boolean(row.isAvailable)])
+            .map((row) => [row.date, getAvailabilityValue(row)])
     );
 
     const rowsToUpsert = [];
     nextMap.forEach((isAvailable, date) => {
         if (!currentMap.has(date) || currentMap.get(date) !== isAvailable) {
-            rowsToUpsert.push({ date, isAvailable });
+            rowsToUpsert.push({ date, isavailable: isAvailable });
         }
     });
 
@@ -394,10 +394,18 @@ function normalizeWorkdayAvailability(entries) {
         if (!entry || typeof entry.date !== 'string') return;
         byDate.set(entry.date, {
             date: entry.date,
-            isAvailable: Boolean(entry.isAvailable)
+            isAvailable: getAvailabilityValue(entry)
         });
     });
     return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function getAvailabilityValue(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    if ('isAvailable' in entry) return Boolean(entry.isAvailable);
+    if ('isavailable' in entry) return Boolean(entry.isavailable);
+    if ('is_available' in entry) return Boolean(entry.is_available);
+    return false;
 }
 
 // --- 既存の API インターフェースに合わせて createStorage 関数を定義 ---
