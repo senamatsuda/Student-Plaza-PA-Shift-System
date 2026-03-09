@@ -10,8 +10,8 @@ const HOLIDAY_API_URL = "https://holidays-jp.github.io/api/v1/date.json";
 const DEFAULT_PA_NAMES = [
   { id: 1, name: "森" },
   { id: 2, name: "松田" },
-  { id: 3, name: "劉" },
-  { id: 4, name: "中野" },
+  //{ id: 3, name: "劉" },
+  //{ id: 4, name: "中野" },
   { id: 5, name: "長谷川" },
   { id: 6, name: "片山" },
   { id: 7, name: "王" },
