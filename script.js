@@ -369,13 +369,10 @@ async function initializePaNames() {
 async function refreshPaNames() {
   const storedRaw = storageGetItem(LOCAL_STORAGE_KEYS.names);
   const stored = readStorageArray(LOCAL_STORAGE_KEYS.names);
+  const shouldSeedDefaults = storedRaw === null;
+  const sourceNames = shouldSeedDefaults ? DEFAULT_PA_NAMES : stored;
 
-  const normalizedDefaults = DEFAULT_PA_NAMES.map((entry, index) => ({
-    id: Number.isFinite(Number(entry.id)) ? Number(entry.id) : index + 1,
-    name: entry.name?.trim() || "",
-  })).filter((entry) => Boolean(entry.name));
-
-  const normalizedStored = stored
+  const normalizedNames = sourceNames
     .map((entry, index) => {
       const id = Number(entry.id);
       return {
@@ -385,33 +382,15 @@ async function refreshPaNames() {
     })
     .filter((entry) => Boolean(entry.name));
 
-  let nextId = Math.max(
-    0,
-    ...normalizedDefaults
-      .map((entry) => entry.id)
-      .filter((id) => Number.isFinite(Number(id))),
-    ...normalizedStored
-      .map((entry) => entry.id)
-      .filter((id) => Number.isFinite(Number(id)))
-  );
-
-  const mergedByName = new Map();
-  normalizedDefaults.forEach((entry) => {
-    mergedByName.set(entry.name, { ...entry });
+  const namesByName = new Map();
+  normalizedNames.forEach((entry, index) => {
+    const existing = namesByName.get(entry.name);
+    const fallbackId = existing?.id || index + 1;
+    const id = Number.isFinite(entry.id) ? entry.id : fallbackId;
+    namesByName.set(entry.name, { id, name: entry.name });
   });
 
-  normalizedStored.forEach((entry) => {
-    const existing = mergedByName.get(entry.name);
-    if (existing) {
-      const id = Number.isFinite(entry.id) ? entry.id : existing.id;
-      mergedByName.set(entry.name, { id, name: entry.name });
-      return;
-    }
-    const id = Number.isFinite(entry.id) ? entry.id : ++nextId;
-    mergedByName.set(entry.name, { id, name: entry.name });
-  });
-
-  paNames = Array.from(mergedByName.values());
+  paNames = Array.from(namesByName.values());
   paNames.sort((a, b) => a.name.localeCompare(b.name, "ja"));
 
   const serialized = JSON.stringify(paNames);
@@ -2185,10 +2164,16 @@ function collectLocalDataset() {
 
 function applyRemoteDataset(dataset) {
   try {
-    const namesFromRemote = Array.isArray(dataset.names) ? dataset.names : [];
-    const shouldUseDefaultNames = namesFromRemote.length === 0;
-    const namesToPersist = shouldUseDefaultNames ? DEFAULT_PA_NAMES : namesFromRemote;
-    writeStorageArray(LOCAL_STORAGE_KEYS.names, namesToPersist);
+    const hasRemoteNames = Array.isArray(dataset.names);
+    const hasLocalNames = storageGetItem(LOCAL_STORAGE_KEYS.names) !== null;
+    const namesToPersist = hasRemoteNames
+      ? dataset.names
+      : hasLocalNames
+        ? null
+        : DEFAULT_PA_NAMES;
+    if (namesToPersist) {
+      writeStorageArray(LOCAL_STORAGE_KEYS.names, namesToPersist);
+    }
 
     if (Array.isArray(dataset.specialDays)) {
       writeStorageArray(LOCAL_STORAGE_KEYS.specialDays, dataset.specialDays);
@@ -2214,7 +2199,7 @@ function applyRemoteDataset(dataset) {
     const namesNextId =
       counters.namesNextId != null
         ? counters.namesNextId
-        : shouldUseDefaultNames
+        : namesToPersist
           ? calculateNextIdFromList(namesToPersist)
           : null;
     if (namesNextId != null) {
