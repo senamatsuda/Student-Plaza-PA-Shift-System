@@ -21,6 +21,7 @@ const DEFAULT_PA_NAMES = [
   { id: 11, name: "黄" },
   { id: 12, name: "鄭" },
   { id: 13, name: "ショーン" },
+  { id: 14, name: "AN" },
 ];
 const LOCAL_STORAGE_KEYS = {
   names: "paShiftNames",
