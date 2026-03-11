@@ -6,6 +6,14 @@ import { createStorage } from "./storage.js";
 const PORT = process.env.PORT || 10000;
 const DATA_FILE = process.env.DATA_FILE || "./api-data.json";
 const FALLBACK_DATA_FILE = "./api-data.json";
+const ADMIN_DELETE_TOKEN = process.env.ADMIN_DELETE_TOKEN;
+const ADMIN_DELETE_CONFIG = {
+  submissions: { columnName: "id" },
+  confirmed_shifts: { columnName: "id" },
+  special_days: { columnName: "id" },
+  names: { columnName: "id" },
+  workday_availability: { columnName: "date" },
+};
 
 const storage = await initializeStorage(DATA_FILE, FALLBACK_DATA_FILE);
 
@@ -47,6 +55,46 @@ app.post("/api/data", async (req, res, next) => {
   try {
     await storage.write(req.body || {});
     res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+app.post("/api/admin/delete", async (req, res, next) => {
+  try {
+    if (!ADMIN_DELETE_TOKEN) {
+      return res.status(503).json({ error: "ADMIN_DELETE_TOKEN is not configured" });
+    }
+
+    const token = req.headers["x-admin-token"];
+    if (token !== ADMIN_DELETE_TOKEN) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { tableName, values } = req.body || {};
+    const config = ADMIN_DELETE_CONFIG[tableName];
+
+    if (!config) {
+      return res.status(400).json({ error: "Unsupported tableName" });
+    }
+
+    if (!Array.isArray(values)) {
+      return res.status(400).json({ error: "values must be an array" });
+    }
+
+    const result = await storage.deleteRowsByColumn({
+      tableName,
+      columnName: config.columnName,
+      values,
+    });
+
+    return res.status(200).json({
+      ok: true,
+      tableName,
+      columnName: config.columnName,
+      deletedCount: result.deletedCount,
+    });
   } catch (error) {
     next(error);
   }

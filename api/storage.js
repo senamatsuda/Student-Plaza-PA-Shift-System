@@ -159,6 +159,27 @@ async function write(payload) {
     }
 }
 
+async function deleteRowsByColumn({ tableName, columnName, values }) {
+    const filteredValues = Array.from(
+        new Set((values || []).filter((value) => value !== undefined && value !== null))
+    );
+
+    if (!filteredValues.length) {
+        return { deletedCount: 0 };
+    }
+
+    const { error } = await supabase
+        .from(tableName)
+        .delete()
+        .in(columnName, filteredValues);
+
+    if (error) {
+        throw error;
+    }
+
+    return { deletedCount: filteredValues.length };
+}
+
 async function syncWorkdayAvailabilityWithDiff({ nextRows, currentRows }) {
     const currentMap = new Map(
         (currentRows || [])
@@ -179,14 +200,12 @@ async function syncWorkdayAvailabilityWithDiff({ nextRows, currentRows }) {
         }
     });
 
-    const datesToDelete = Array.from(currentMap.keys()).filter((date) => !nextMap.has(date));
+    const staleDates = Array.from(currentMap.keys()).filter((date) => !nextMap.has(date));
 
-    if (datesToDelete.length) {
-        const { error: deleteError } = await supabase
-            .from('workday_availability')
-            .delete()
-            .in('date', datesToDelete);
-        if (deleteError) throw deleteError;
+    if (staleDates.length) {
+        console.warn(
+            `[non-destructive-sync] Skipping delete for workday_availability. stale rows=${staleDates.length}`
+        );
     }
 
     if (rowsToUpsert.length) {
@@ -214,8 +233,9 @@ async function syncTableWithDiff({
     });
 
     if (idsToDelete.length) {
-        const { error: deleteError } = await supabase.from(tableName).delete().in('id', idsToDelete);
-        if (deleteError) throw deleteError;
+        console.warn(
+            `[non-destructive-sync] Skipping delete for ${tableName}. stale rows=${idsToDelete.length}`
+        );
     }
 
     if (rowsToUpsert.length) {
@@ -413,6 +433,7 @@ export function createStorage(dataFilePath) {
     // dataFilePath は Supabase では使用しませんが、既存の関数シグネチャを維持
     return {
         read,
-        write
+        write,
+        deleteRowsByColumn
     };
 }
