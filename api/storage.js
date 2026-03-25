@@ -1,6 +1,8 @@
 // api/storage.js (Supabase版)
 import { createClient } from '@supabase/supabase-js';
 
+const CONFIRMED_SHIFT_NOTE_PREFIX = '__confirmed_meta__:';
+
 // --- Supabase クライアントの初期化 ---
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -67,12 +69,19 @@ async function read() {
 /**
  * ペイロードの内容をSupabaseの各テーブルに反映します。
  * 既存データとの差分のみを反映し、全削除を避けることで不要な書き込みを減らします。
- * @param {{names: Array, specialDays: Array, submissions: Array, confirmedShifts: Object, workdayAvailability: Array}} payload
+ * @param {{names: Array, specialDays: Array, submissions: Array, submissionSyncScopes?: Array, confirmedShifts: Object, workdayAvailability: Array}} payload
  * @returns {Promise<void>}
  */
 async function write(payload) {
     console.log('Writing data to Supabase...');
-    const { names, specialDays, submissions, confirmedShifts, workdayAvailability } = payload;
+    const {
+        names,
+        specialDays,
+        submissions,
+        submissionSyncScopes,
+        confirmedShifts,
+        workdayAvailability
+    } = payload;
 
     try {
         const normalizedSubmissions = normalizeSubmissionsForInsert(submissions);
@@ -113,19 +122,17 @@ async function write(payload) {
             throw new Error('Failed to fetch existing data before diff sync.');
         }
 
-        await syncTableWithDiff({
-            tableName: 'submissions',
+        await syncSubmissionsWithDiff({
             nextRows: normalizedSubmissions,
             currentRows: currentSubmissions || [],
-            keyFn: (row) => row.id,
-            compareKeys: ['name', 'date', 'monthKey', 'shiftType', 'start', 'end']
+            scopes: submissionSyncScopes
         });
 
         await syncTableWithDiff({
             tableName: 'confirmed_shifts',
             nextRows: confirmedShiftRows,
             currentRows: currentConfirmedShifts || [],
-            keyFn: (row) => `${row.date}|${row.name}|${row.shiftType}`,
+            keyFn: buildConfirmedShiftRowKey,
             compareKeys: ['start', 'end', 'note'],
             allowIdReuse: true
         });
@@ -216,6 +223,76 @@ async function syncWorkdayAvailabilityWithDiff({ nextRows, currentRows }) {
     }
 }
 
+async function syncSubmissionsWithDiff({ nextRows, currentRows, scopes }) {
+    const normalizedScopes = normalizeSubmissionSyncScopes(scopes);
+
+    if (!normalizedScopes.length) {
+        await syncTableWithDiff({
+            tableName: 'submissions',
+            nextRows,
+            currentRows,
+            keyFn: (row) => row.id,
+            compareKeys: ['name', 'date', 'monthKey', 'shiftType', 'start', 'end']
+        });
+        return;
+    }
+
+    const scopeKeys = new Set(
+        normalizedScopes.map((scope) => buildSubmissionScopeKey(scope.name, scope.monthKey))
+    );
+    const isInScope = (row) => scopeKeys.has(buildSubmissionScopeKey(row?.name, row?.monthKey));
+
+    const scopedNextRows = (nextRows || []).filter(isInScope);
+    const scopedCurrentRows = (currentRows || []).filter(isInScope);
+    const outOfScopeNextRows = (nextRows || []).filter((row) => !isInScope(row));
+    const outOfScopeCurrentRows = (currentRows || []).filter((row) => !isInScope(row));
+    const duplicateScopedCurrentIds = findDuplicateRowIdsByKey(
+        scopedCurrentRows,
+        buildSubmissionNaturalKey
+    );
+
+    const scopedDiff = computeDiff({
+        nextRows: dedupeRowsByKey(scopedNextRows, buildSubmissionNaturalKey),
+        currentRows: dedupeRowsByKey(scopedCurrentRows, buildSubmissionNaturalKey),
+        keyFn: buildSubmissionNaturalKey,
+        compareKeys: ['shiftType', 'start', 'end'],
+        allowIdReuse: true
+    });
+
+    const outOfScopeDiff = computeDiff({
+        nextRows: outOfScopeNextRows,
+        currentRows: outOfScopeCurrentRows,
+        keyFn: (row) => row.id,
+        compareKeys: ['name', 'date', 'monthKey', 'shiftType', 'start', 'end']
+    });
+
+    const scopedIdsToDelete = Array.from(
+        new Set([...duplicateScopedCurrentIds, ...scopedDiff.idsToDelete])
+    );
+
+    if (scopedIdsToDelete.length) {
+        await deleteRowsByColumn({
+            tableName: 'submissions',
+            columnName: 'id',
+            values: scopedIdsToDelete
+        });
+    }
+
+    if (outOfScopeDiff.idsToDelete.length) {
+        console.warn(
+            `[non-destructive-sync] Skipping delete for submissions outside scoped sync. stale rows=${outOfScopeDiff.idsToDelete.length}`
+        );
+    }
+
+    const rowsToUpsert = [...outOfScopeDiff.rowsToUpsert, ...scopedDiff.rowsToUpsert];
+    if (rowsToUpsert.length) {
+        const { error: upsertError } = await supabase
+            .from('submissions')
+            .upsert(rowsToUpsert, { onConflict: 'id' });
+        if (upsertError) throw upsertError;
+    }
+}
+
 async function syncTableWithDiff({
     tableName,
     nextRows,
@@ -295,6 +372,85 @@ function normalizeValue(value) {
     return value === undefined ? null : value;
 }
 
+function normalizeSubmissionSyncScopes(scopes) {
+    const uniqueScopes = new Map();
+
+    (scopes || []).forEach((scope) => {
+        const name = typeof scope?.name === 'string' ? scope.name : '';
+        const monthKey = typeof scope?.monthKey === 'string' ? scope.monthKey : '';
+        const key = buildSubmissionScopeKey(name, monthKey);
+
+        if (!key) {
+            return;
+        }
+
+        uniqueScopes.set(key, { name, monthKey });
+    });
+
+    return Array.from(uniqueScopes.values());
+}
+
+function buildSubmissionScopeKey(name, monthKey) {
+    if (!name || !monthKey) {
+        return '';
+    }
+
+    return `${name}|${monthKey}`;
+}
+
+function buildSubmissionNaturalKey(row) {
+    if (
+        !row ||
+        typeof row.name !== 'string' ||
+        typeof row.monthKey !== 'string' ||
+        typeof row.date !== 'string'
+    ) {
+        return null;
+    }
+
+    return `${row.name}|${row.monthKey}|${row.date}`;
+}
+
+function dedupeRowsByKey(rows, keyFn) {
+    const deduped = new Map();
+
+    (rows || []).forEach((row) => {
+        const key = keyFn(row);
+        if (key === undefined || key === null) {
+            return;
+        }
+
+        if (!deduped.has(key)) {
+            deduped.set(key, row);
+        }
+    });
+
+    return Array.from(deduped.values());
+}
+
+function findDuplicateRowIdsByKey(rows, keyFn) {
+    const seen = new Set();
+    const duplicateIds = [];
+
+    (rows || []).forEach((row) => {
+        const key = keyFn(row);
+        if (key === undefined || key === null) {
+            return;
+        }
+
+        if (seen.has(key)) {
+            if (row?.id !== undefined && row?.id !== null) {
+                duplicateIds.push(row.id);
+            }
+            return;
+        }
+
+        seen.add(key);
+    });
+
+    return duplicateIds;
+}
+
 function serializeConfirmedShifts(confirmedShifts) {
     return Object.entries(confirmedShifts || {}).flatMap(([, entries]) => {
         if (!entries || typeof entries !== 'object') return [];
@@ -303,8 +459,9 @@ function serializeConfirmedShifts(confirmedShifts) {
             .map(([entryKey]) => {
                 const parsed = parseConfirmedEntryKey(entryKey);
                 const shiftType = parsed.shiftType || parsed.slot || null;
+                const slot = parsed.slot || shiftType || null;
 
-                if (!parsed.name || !parsed.date || !shiftType) {
+                if (!parsed.name || !parsed.date || !shiftType || !slot) {
                     return null;
                 }
 
@@ -314,7 +471,10 @@ function serializeConfirmedShifts(confirmedShifts) {
                     shiftType,
                     start: parsed.start || null,
                     end: parsed.end || null,
-                    note: parsed.label || null
+                    note: encodeConfirmedShiftNote({
+                        slot,
+                        label: parsed.label || parsed.name || ''
+                    })
                 };
             })
             .filter(Boolean);
@@ -351,17 +511,61 @@ function parseConfirmedEntryKey(entryKey) {
 
 function buildEntryKeyFromRow(row) {
     if (!row) return null;
+    const meta = decodeConfirmedShiftNote(row.note);
     const date = row.date || '';
     const name = row.name || '';
     const shiftType = row.shiftType || '';
-    const slot = shiftType || '';
-    const label = row.note || row.name || '';
+    const slot = meta?.slot || shiftType || '';
+    const label = meta?.label || row.note || row.name || '';
     const start = row.start || '';
     const end = row.end || '';
     if (!date || !slot || !name) {
         return null;
     }
     return [date, slot, name, label, start, end, shiftType].join('|');
+}
+
+function buildConfirmedShiftRowKey(row) {
+    if (!row) {
+        return null;
+    }
+
+    const meta = decodeConfirmedShiftNote(row.note);
+    const date = row.date || '';
+    const name = row.name || '';
+    const shiftType = row.shiftType || '';
+    const slot = meta?.slot || shiftType || '';
+
+    if (!date || !name || !shiftType || !slot) {
+        return null;
+    }
+
+    return [date, name, shiftType, slot].join('|');
+}
+
+function encodeConfirmedShiftNote({ slot, label }) {
+    const payload = {
+        slot: typeof slot === 'string' ? slot : '',
+        label: typeof label === 'string' ? label : ''
+    };
+    return `${CONFIRMED_SHIFT_NOTE_PREFIX}${JSON.stringify(payload)}`;
+}
+
+function decodeConfirmedShiftNote(note) {
+    if (typeof note !== 'string' || !note.startsWith(CONFIRMED_SHIFT_NOTE_PREFIX)) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(note.slice(CONFIRMED_SHIFT_NOTE_PREFIX.length));
+        return {
+            slot: typeof parsed?.slot === 'string' ? parsed.slot : '',
+            label: typeof parsed?.label === 'string' ? parsed.label : ''
+        };
+    } catch (error) {
+        console.warn('Failed to parse confirmed shift note metadata', error);
+        return null;
+    }
 }
 
 function normalizeListWithIds(entries) {

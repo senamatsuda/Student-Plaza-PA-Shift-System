@@ -43,7 +43,10 @@ const REMOTE_KEEPALIVE_INTERVAL_MS = 14 * 60 * 1000;
 const remoteSyncState = { lastPull: null, lastPush: null, isConnected: false };
 let remotePushTimeoutId = null;
 let remotePushInFlight = false;
+let remotePushQueued = false;
 let remoteKeepAliveTimerId = null;
+let nextSubmissionSyncScopeVersion = 0;
+const pendingSubmissionSyncScopes = new Map();
 
 let submissionEntries = [];
 let holidayMap = {};
@@ -698,11 +701,118 @@ async function refreshSubmissions() {
 }
 
 function saveSubmissionEntries(name, monthKey, entries) {
-  submissionEntries = submissionEntries.filter(
-    (entry) => !(entry.name === name && entry.monthKey === monthKey)
+  const nextEntriesByKey = new Map(
+    entries.map((entry) => [buildSubmissionEntryKey(entry), entry])
   );
-  submissionEntries.push(...entries);
+  const nextSubmissionEntries = [];
+
+  submissionEntries.forEach((entry) => {
+    const isTargetScope = entry.name === name && entry.monthKey === monthKey;
+    if (!isTargetScope) {
+      nextSubmissionEntries.push(entry);
+      return;
+    }
+
+    const entryKey = buildSubmissionEntryKey(entry);
+    const nextEntry = nextEntriesByKey.get(entryKey);
+
+    if (!nextEntry) {
+      return;
+    }
+
+    nextEntriesByKey.delete(entryKey);
+
+    if (areSubmissionEntriesEqual(entry, nextEntry)) {
+      nextSubmissionEntries.push(entry);
+      return;
+    }
+
+    nextSubmissionEntries.push(
+      entry.id != null ? { ...nextEntry, id: entry.id } : nextEntry
+    );
+  });
+
+  nextEntriesByKey.forEach((entry) => {
+    nextSubmissionEntries.push(entry);
+  });
+
+  submissionEntries = nextSubmissionEntries;
+  queueSubmissionSyncScope(name, monthKey);
   persistSubmissions();
+}
+
+function buildSubmissionEntryKey(entry) {
+  if (
+    !entry ||
+    typeof entry.name !== "string" ||
+    typeof entry.monthKey !== "string" ||
+    typeof entry.date !== "string"
+  ) {
+    return "";
+  }
+
+  return `${entry.name}|${entry.monthKey}|${entry.date}`;
+}
+
+function areSubmissionEntriesEqual(a, b) {
+  return (
+    a?.name === b?.name &&
+    a?.date === b?.date &&
+    a?.monthKey === b?.monthKey &&
+    a?.shiftType === b?.shiftType &&
+    normalizeSubmissionFieldValue(a?.start) ===
+      normalizeSubmissionFieldValue(b?.start) &&
+    normalizeSubmissionFieldValue(a?.end) ===
+      normalizeSubmissionFieldValue(b?.end)
+  );
+}
+
+function normalizeSubmissionFieldValue(value) {
+  return value ?? null;
+}
+
+function buildSubmissionSyncScopeKey(name, monthKey) {
+  if (!name || !monthKey) {
+    return "";
+  }
+
+  return `${name}|${monthKey}`;
+}
+
+function queueSubmissionSyncScope(name, monthKey) {
+  const key = buildSubmissionSyncScopeKey(name, monthKey);
+  if (!key) {
+    return;
+  }
+
+  pendingSubmissionSyncScopes.set(key, {
+    name,
+    monthKey,
+    version: ++nextSubmissionSyncScopeVersion,
+  });
+}
+
+function getPendingSubmissionSyncScopes() {
+  return Array.from(pendingSubmissionSyncScopes.values()).map((scope) => ({
+    name: scope.name,
+    monthKey: scope.monthKey,
+    version: scope.version,
+  }));
+}
+
+function clearPendingSubmissionSyncScopes(scopes) {
+  if (!Array.isArray(scopes)) {
+    return;
+  }
+
+  scopes.forEach((scope) => {
+    const key = buildSubmissionSyncScopeKey(scope?.name, scope?.monthKey);
+    const current = pendingSubmissionSyncScopes.get(key);
+
+    if (current && current.version === scope?.version) {
+      pendingSubmissionSyncScopes.delete(key);
+    }
+  });
 }
 
 function persistSubmissions() {
@@ -2112,6 +2222,10 @@ async function syncRemoteDataFromServer() {
 
 function scheduleRemotePush() {
   if (!remoteSyncClient) return;
+  if (remotePushInFlight) {
+    remotePushQueued = true;
+    return;
+  }
   if (remotePushTimeoutId) {
     clearTimeout(remotePushTimeoutId);
   }
@@ -2124,13 +2238,19 @@ function scheduleRemotePush() {
 }
 
 async function pushRemoteData() {
-  if (!remoteSyncClient || remotePushInFlight) {
+  if (!remoteSyncClient) {
+    return;
+  }
+  if (remotePushInFlight) {
+    remotePushQueued = true;
     return;
   }
   remotePushInFlight = true;
   updateSyncStatus("Render に保存しています...");
+  const payload = collectLocalDataset();
   try {
-    await remoteSyncClient.push(collectLocalDataset());
+    await remoteSyncClient.push(payload);
+    clearPendingSubmissionSyncScopes(payload.submissionSyncScopes);
     setRemoteConnectionStatus(true);
     remoteSyncState.lastPush = new Date();
     updateSyncStatus(
@@ -2145,6 +2265,10 @@ async function pushRemoteData() {
     throw error;
   } finally {
     remotePushInFlight = false;
+    if (remotePushQueued) {
+      remotePushQueued = false;
+      scheduleRemotePush();
+    }
   }
 }
 
@@ -2153,6 +2277,7 @@ function collectLocalDataset() {
     names: paNames,
     specialDays: specialDayEntries,
     submissions: submissionEntries,
+    submissionSyncScopes: getPendingSubmissionSyncScopes(),
     confirmedShifts: confirmedShiftMap,
     workdayAvailability: workdayAvailabilityEntries,
     counters: {
