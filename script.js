@@ -45,6 +45,7 @@ let remotePushTimeoutId = null;
 let remotePushInFlight = false;
 let remotePushQueued = false;
 let remoteKeepAliveTimerId = null;
+let remoteHasPendingChanges = false;
 let nextSubmissionSyncScopeVersion = 0;
 const pendingSubmissionSyncScopes = new Map();
 
@@ -360,6 +361,7 @@ async function init() {
   }
   window.addEventListener("online", handleOnlineStatusChange);
   window.addEventListener("offline", handleOfflineStatusChange);
+  window.addEventListener("pagehide", handlePageHide);
   renderAdminTable();
 }
 
@@ -2197,6 +2199,15 @@ function handleOfflineStatusChange() {
   );
 }
 
+function handlePageHide() {
+  if (!remoteSyncClient || !remoteHasPendingChanges) return;
+  if (remotePushTimeoutId) {
+    clearTimeout(remotePushTimeoutId);
+    remotePushTimeoutId = null;
+  }
+  remoteSyncClient.pushKeepalive(collectLocalDataset());
+}
+
 async function syncRemoteDataFromServer() {
   if (!remoteSyncClient) return;
   updateSyncStatus("Render ストレージと同期しています...");
@@ -2222,6 +2233,7 @@ async function syncRemoteDataFromServer() {
 
 function scheduleRemotePush() {
   if (!remoteSyncClient) return;
+  remoteHasPendingChanges = true;
   if (remotePushInFlight) {
     remotePushQueued = true;
     return;
@@ -2253,10 +2265,14 @@ async function pushRemoteData() {
     clearPendingSubmissionSyncScopes(payload.submissionSyncScopes);
     setRemoteConnectionStatus(true);
     remoteSyncState.lastPush = new Date();
+    if (!remotePushQueued) {
+      remoteHasPendingChanges = false;
+    }
     updateSyncStatus(
       `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
     );
   } catch (error) {
+    remoteHasPendingChanges = true;
     setRemoteConnectionStatus(false);
     updateSyncStatus(
       "リモートへの保存に失敗しました。ネットワーク状態を確認してください。",
@@ -2472,6 +2488,29 @@ function createRemoteSyncClient() {
       return request("/api/data", {
         method: "POST",
         body: JSON.stringify(payload),
+      });
+    },
+    pushKeepalive(payload) {
+      const url = `${normalizedBase}/api/data`;
+      const body = JSON.stringify(payload);
+
+      if (navigator.sendBeacon) {
+        const didQueue = navigator.sendBeacon(
+          url,
+          new Blob([body], { type: "application/json" })
+        );
+        if (didQueue) {
+          return;
+        }
+      }
+
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        keepalive: true,
+      }).catch((error) => {
+        console.warn("Keepalive sync failed", error);
       });
     },
     async ping() {

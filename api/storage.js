@@ -134,7 +134,8 @@ async function write(payload) {
             currentRows: currentConfirmedShifts || [],
             keyFn: buildConfirmedShiftStorageKey,
             compareKeys: ['start', 'end', 'note'],
-            allowIdReuse: true
+            allowIdReuse: true,
+            deleteMissingRows: true
         });
 
         await syncTableWithDiff({
@@ -296,7 +297,8 @@ async function syncTableWithDiff({
     currentRows,
     keyFn,
     compareKeys,
-    allowIdReuse = false
+    allowIdReuse = false,
+    deleteMissingRows = false
 }) {
     const { rowsToUpsert, idsToDelete } = computeDiff({
         nextRows,
@@ -307,9 +309,17 @@ async function syncTableWithDiff({
     });
 
     if (idsToDelete.length) {
-        console.warn(
-            `[non-destructive-sync] Skipping delete for ${tableName}. stale rows=${idsToDelete.length}`
-        );
+        if (deleteMissingRows) {
+            await deleteRowsByColumn({
+                tableName,
+                columnName: 'id',
+                values: idsToDelete
+            });
+        } else {
+            console.warn(
+                `[non-destructive-sync] Skipping delete for ${tableName}. stale rows=${idsToDelete.length}`
+            );
+        }
     }
 
     if (rowsToUpsert.length) {
