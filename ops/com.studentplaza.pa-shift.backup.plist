@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.studentplaza.pa-shift.backup</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/ABSOLUTE/PATH/TO/node</string>
+      <string>/ABSOLUTE/PATH/TO/Student-Plaza-PA-Shift-System/scripts/backup-pa-shift.mjs</string>
+      <string>--api-base-url</string>
+      <string>https://student-plaza-pa-shift-system.onrender.com</string>
+      <string>--output-dir</string>
+      <string>/Users/YOUR_USER/Documents/PA-Shift-Backups</string>
+      <string>--retention-days</string>
+      <string>30</string>
+      <string>--timezone</string>
+      <string>Asia/Tokyo</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <dict>
+      <key>Hour</key>
+      <integer>0</integer>
+      <key>Minute</key>
+      <integer>0</integer>
+    </dict>
+
+    <key>WorkingDirectory</key>
+    <string>/ABSOLUTE/PATH/TO/Student-Plaza-PA-Shift-System</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/com.studentplaza.pa-shift.backup.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/YOUR_USER/Library/Logs/com.studentplaza.pa-shift.backup.error.log</string>
+  </dict>
+</plist>

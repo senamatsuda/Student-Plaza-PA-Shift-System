@@ -126,3 +126,108 @@ CREATE TABLE IF NOT EXISTS workday_availability (
 - ビルド工程はありません。`index.html`, `styles.css`, `script.js`, `config.js` を直接編集してください。
 - 祝日データは `https://holidays-jp.github.io/api/v1/date.json` から取得します (取得できない場合は祝日ハイライトなしで動作します)。
 - Admin 画面でシフトを確定すると、その状態を画像としてエクスポートできます。
+
+## macOS で毎日 0 時にバックアップする
+
+このリポジトリには、API の `/api/data` を毎日自動取得して macOS に JSON 保存するためのスクリプトと `launchd` テンプレートが含まれています。
+
+- スクリプト: `scripts/backup-pa-shift.mjs`
+- `launchd` テンプレート: `ops/com.studentplaza.pa-shift.backup.plist`
+- 既定の取得先: `https://student-plaza-pa-shift-system.onrender.com/api/data`
+- 既定の保存先: `~/Documents/PA-Shift-Backups`
+- 既定の保持期間: 30 日
+- 既定のタイムゾーン: `Asia/Tokyo`
+
+### 1. 手動で疎通確認する
+
+```bash
+node scripts/backup-pa-shift.mjs
+```
+
+別の API を使う場合は `--api-base-url` で上書きできます。
+
+```bash
+node scripts/backup-pa-shift.mjs \
+  --api-base-url https://your-api.example.com \
+  --output-dir ~/Documents/PA-Shift-Backups \
+  --retention-days 30 \
+  --timezone Asia/Tokyo
+```
+
+成功すると次の 2 ファイルが更新されます。
+
+- `~/Documents/PA-Shift-Backups/pa-shift-backup-YYYY-MM-DD.json`
+- `~/Documents/PA-Shift-Backups/latest.json`
+
+### 2. LaunchAgent を配置する
+
+テンプレートの `ProgramArguments`, `WorkingDirectory`, `StandardOutPath`, `StandardErrorPath` に含まれるプレースホルダを自分の環境の絶対パスへ置き換えてください。Node の実体パスは `which node` で確認できます。
+
+```bash
+cp ops/com.studentplaza.pa-shift.backup.plist ~/Library/LaunchAgents/
+```
+
+`~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist` を編集したら、次のいずれかで有効化できます。
+
+```bash
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+launchctl kickstart -k "gui/$(id -u)/com.studentplaza.pa-shift.backup"
+```
+
+`bootstrap` で既に読み込まれていると言われた場合は、いったん解除してから再読込します。
+
+```bash
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+launchctl bootstrap "gui/$(id -u)" ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+```
+
+古い macOS の互換手順としては次も使えます。
+
+```bash
+launchctl load -w ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+```
+
+### 3. 0 時実行に寄せるため wake / power on を設定する
+
+0 時ちょうどにバックアップしたい場合、Mac がその直前に起きている必要があります。毎日 23:59 に wake / power on を設定する例です。
+
+```bash
+sudo pmset repeat wakeorpoweron MTWRFSU 23:59:00
+```
+
+現在のスケジュール確認:
+
+```bash
+pmset -g sched
+```
+
+電源イベントを解除する場合:
+
+```bash
+sudo pmset repeat cancel
+```
+
+### 4. 停止 / 解除する
+
+```bash
+launchctl bootout "gui/$(id -u)" ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+rm ~/Library/LaunchAgents/com.studentplaza.pa-shift.backup.plist
+```
+
+バックアップファイル自体を消したくない場合は `~/Documents/PA-Shift-Backups` はそのまま残してください。
+
+### 5. 復元する
+
+保存された JSON は `/api/data` と同じ payload 形式です。復元時は対象の JSON を `POST /api/data` に送れば同形式で戻せます。
+
+例:
+
+```bash
+curl \
+  -X POST \
+  -H "Content-Type: application/json" \
+  --data @~/Documents/PA-Shift-Backups/latest.json \
+  https://student-plaza-pa-shift-system.onrender.com/api/data
+```
+
+別の API 環境へ復元する場合は URL を差し替えてください。
