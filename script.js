@@ -2225,7 +2225,7 @@ async function syncRemoteDataFromServer() {
     console.error("Failed to fetch remote data", error);
     setRemoteConnectionStatus(false);
     updateSyncStatus(
-      "リモートAPIに接続できません。接続が回復するまでローカル保存で動作します。",
+      "リモートAPIに接続できません。サーバーを再起動しています。数分後、リロードしてください。",
       "error"
     );
   }
