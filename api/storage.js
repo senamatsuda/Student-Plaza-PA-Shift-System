@@ -132,7 +132,7 @@ async function write(payload) {
             tableName: 'confirmed_shifts',
             nextRows: confirmedShiftRows,
             currentRows: currentConfirmedShifts || [],
-            keyFn: buildConfirmedShiftRowKey,
+            keyFn: buildConfirmedShiftStorageKey,
             compareKeys: ['start', 'end', 'note'],
             allowIdReuse: true
         });
@@ -286,10 +286,7 @@ async function syncSubmissionsWithDiff({ nextRows, currentRows, scopes }) {
 
     const rowsToUpsert = [...outOfScopeDiff.rowsToUpsert, ...scopedDiff.rowsToUpsert];
     if (rowsToUpsert.length) {
-        const { error: upsertError } = await supabase
-            .from('submissions')
-            .upsert(rowsToUpsert, { onConflict: 'id' });
-        if (upsertError) throw upsertError;
+        await syncRowsById({ tableName: 'submissions', rows: rowsToUpsert });
     }
 }
 
@@ -316,10 +313,35 @@ async function syncTableWithDiff({
     }
 
     if (rowsToUpsert.length) {
+        await syncRowsById({ tableName, rows: rowsToUpsert });
+    }
+}
+
+async function syncRowsById({ tableName, rows }) {
+    const rowsWithId = [];
+    const rowsWithoutId = [];
+
+    (rows || []).forEach((row) => {
+        if (hasValidId(row?.id)) {
+            rowsWithId.push(row);
+            return;
+        }
+
+        rowsWithoutId.push(stripIdField(row));
+    });
+
+    if (rowsWithId.length) {
         const { error: upsertError } = await supabase
             .from(tableName)
-            .upsert(rowsToUpsert, { onConflict: 'id' });
+            .upsert(rowsWithId, { onConflict: 'id' });
         if (upsertError) throw upsertError;
+    }
+
+    if (rowsWithoutId.length) {
+        const { error: insertError } = await supabase
+            .from(tableName)
+            .insert(rowsWithoutId);
+        if (insertError) throw insertError;
     }
 }
 
@@ -370,6 +392,20 @@ function areRowsEqual(a, b, keys) {
 
 function normalizeValue(value) {
     return value === undefined ? null : value;
+}
+
+function hasValidId(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0;
+}
+
+function stripIdField(row) {
+    if (!row || typeof row !== 'object') {
+        return row;
+    }
+
+    const { id, ...rest } = row;
+    return rest;
 }
 
 function normalizeSubmissionSyncScopes(scopes) {
@@ -452,44 +488,68 @@ function findDuplicateRowIdsByKey(rows, keyFn) {
 }
 
 function serializeConfirmedShifts(confirmedShifts) {
-    return Object.entries(confirmedShifts || {}).flatMap(([, entries]) => {
-        if (!entries || typeof entries !== 'object') return [];
-        return Object.entries(entries)
+    const groupedRows = new Map();
+
+    Object.entries(confirmedShifts || {}).forEach(([, entries]) => {
+        if (!entries || typeof entries !== 'object') return;
+
+        Object.entries(entries)
             .filter(([, isConfirmed]) => Boolean(isConfirmed))
-            .map(([entryKey]) => {
+            .forEach(([entryKey]) => {
                 const parsed = parseConfirmedEntryKey(entryKey);
                 const shiftType = parsed.shiftType || parsed.slot || null;
-                const slot = parsed.slot || shiftType || null;
+                const slot = parsed.slot || null;
 
                 if (!parsed.name || !parsed.date || !shiftType || !slot) {
-                    return null;
+                    return;
                 }
 
-                return {
+                const row = {
                     name: parsed.name,
                     date: parsed.date,
                     shiftType,
                     start: parsed.start || null,
-                    end: parsed.end || null,
-                    note: encodeConfirmedShiftNote({
-                        slot,
-                        label: parsed.label || parsed.name || ''
-                    })
+                    end: parsed.end || null
                 };
-            })
-            .filter(Boolean);
+                const storageKey = buildConfirmedShiftStorageKey(row);
+
+                if (!storageKey) {
+                    return;
+                }
+
+                const existing = groupedRows.get(storageKey) || {
+                    ...row,
+                    slotLabels: {}
+                };
+
+                existing.slotLabels[slot] = parsed.label || parsed.name || '';
+                groupedRows.set(storageKey, existing);
+            });
     });
+
+    return Array.from(groupedRows.values()).map((row) => ({
+        name: row.name,
+        date: row.date,
+        shiftType: row.shiftType,
+        start: row.start,
+        end: row.end,
+        note: encodeConfirmedShiftNote({
+            slotLabels: row.slotLabels
+        })
+    }));
 }
 
 function deserializeConfirmedShifts(rows) {
     return (rows || []).reduce((acc, row) => {
         const monthKey = deriveMonthKey(row.date);
-        const entryKey = buildEntryKeyFromRow(row);
-        if (!monthKey || !entryKey) return acc;
+        const entryKeys = buildEntryKeysFromRow(row);
+        if (!monthKey || !entryKeys.length) return acc;
         if (!acc[monthKey]) {
             acc[monthKey] = {};
         }
-        acc[monthKey][entryKey] = true;
+        entryKeys.forEach((entryKey) => {
+            acc[monthKey][entryKey] = true;
+        });
         return acc;
     }, {});
 }
@@ -509,44 +569,59 @@ function parseConfirmedEntryKey(entryKey) {
     return { date, slot, name, label, start, end, shiftType };
 }
 
-function buildEntryKeyFromRow(row) {
-    if (!row) return null;
+function buildEntryKeysFromRow(row) {
+    if (!row) return [];
     const meta = decodeConfirmedShiftNote(row.note);
     const date = row.date || '';
     const name = row.name || '';
     const shiftType = row.shiftType || '';
-    const slot = meta?.slot || shiftType || '';
-    const label = meta?.label || row.note || row.name || '';
     const start = row.start || '';
     const end = row.end || '';
-    if (!date || !slot || !name) {
-        return null;
+    if (!date || !name || !shiftType) {
+        return [];
     }
-    return [date, slot, name, label, start, end, shiftType].join('|');
+
+    const slotLabels = getConfirmedShiftSlotLabels(meta);
+    if (slotLabels.length) {
+        return slotLabels.map(({ slot, label }) =>
+            [date, slot, name, label || row.name || '', start, end, shiftType].join('|')
+        );
+    }
+
+    const fallbackSlot = shiftType || '';
+    const fallbackLabel =
+        typeof row.note === 'string' && !row.note.startsWith(CONFIRMED_SHIFT_NOTE_PREFIX)
+            ? row.note
+            : row.name || '';
+
+    if (!fallbackSlot) {
+        return [];
+    }
+
+    return [[date, fallbackSlot, name, fallbackLabel, start, end, shiftType].join('|')];
 }
 
-function buildConfirmedShiftRowKey(row) {
+function buildConfirmedShiftStorageKey(row) {
     if (!row) {
         return null;
     }
 
-    const meta = decodeConfirmedShiftNote(row.note);
     const date = row.date || '';
     const name = row.name || '';
     const shiftType = row.shiftType || '';
-    const slot = meta?.slot || shiftType || '';
+    const start = normalizeValue(row.start) ?? '';
+    const end = normalizeValue(row.end) ?? '';
 
-    if (!date || !name || !shiftType || !slot) {
+    if (!date || !name || !shiftType) {
         return null;
     }
 
-    return [date, name, shiftType, slot].join('|');
+    return [date, name, shiftType, start, end].join('|');
 }
 
-function encodeConfirmedShiftNote({ slot, label }) {
+function encodeConfirmedShiftNote({ slotLabels }) {
     const payload = {
-        slot: typeof slot === 'string' ? slot : '',
-        label: typeof label === 'string' ? label : ''
+        slots: buildStableConfirmedShiftSlots(slotLabels)
     };
     return `${CONFIRMED_SHIFT_NOTE_PREFIX}${JSON.stringify(payload)}`;
 }
@@ -558,14 +633,56 @@ function decodeConfirmedShiftNote(note) {
 
     try {
         const parsed = JSON.parse(note.slice(CONFIRMED_SHIFT_NOTE_PREFIX.length));
-        return {
-            slot: typeof parsed?.slot === 'string' ? parsed.slot : '',
-            label: typeof parsed?.label === 'string' ? parsed.label : ''
-        };
+        if (parsed?.slots && typeof parsed.slots === 'object') {
+            return {
+                slots: buildStableConfirmedShiftSlots(parsed.slots)
+            };
+        }
+
+        if (typeof parsed?.slot === 'string') {
+            return {
+                slots: buildStableConfirmedShiftSlots({
+                    [parsed.slot]: typeof parsed?.label === 'string' ? parsed.label : ''
+                })
+            };
+        }
+
+        return null;
     } catch (error) {
         console.warn('Failed to parse confirmed shift note metadata', error);
         return null;
     }
+}
+
+function getConfirmedShiftSlotLabels(meta) {
+    if (!meta?.slots || typeof meta.slots !== 'object') {
+        return [];
+    }
+
+    return Object.entries(meta.slots)
+        .filter(([slot]) => typeof slot === 'string' && slot)
+        .map(([slot, label]) => ({
+            slot,
+            label: typeof label === 'string' ? label : ''
+        }));
+}
+
+function buildStableConfirmedShiftSlots(slotLabels) {
+    const source = slotLabels && typeof slotLabels === 'object' ? slotLabels : {};
+    const slots = {};
+    const orderedKeys = ['morning', 'afternoon'];
+    const extraKeys = Object.keys(source)
+        .filter((key) => !orderedKeys.includes(key))
+        .sort((a, b) => a.localeCompare(b));
+
+    [...orderedKeys, ...extraKeys].forEach((slot) => {
+        const label = source[slot];
+        if (typeof label === 'string' && slot) {
+            slots[slot] = label;
+        }
+    });
+
+    return slots;
 }
 
 function normalizeListWithIds(entries) {
