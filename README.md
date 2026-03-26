@@ -136,6 +136,8 @@ CREATE TABLE IF NOT EXISTS workday_availability (
 - 既定の取得先: `https://student-plaza-pa-shift-system.onrender.com/api/data`
 - 既定の保存先: `~/Documents/PA-Shift-Backups`
 - 既定の保持期間: 30 日
+- 既定のタイムアウト: 60 秒
+- 既定の再試行: 3 回、15 秒間隔
 - 既定のタイムゾーン: `Asia/Tokyo`
 
 ### 1. 手動で疎通確認する
@@ -151,6 +153,9 @@ node scripts/backup-pa-shift.mjs \
   --api-base-url https://your-api.example.com \
   --output-dir ~/Documents/PA-Shift-Backups \
   --retention-days 30 \
+  --timeout-ms 60000 \
+  --max-attempts 3 \
+  --retry-delay-ms 15000 \
   --timezone Asia/Tokyo
 ```
 
@@ -158,6 +163,8 @@ node scripts/backup-pa-shift.mjs \
 
 - `~/Documents/PA-Shift-Backups/pa-shift-backup-YYYY-MM-DD.json`
 - `~/Documents/PA-Shift-Backups/latest.json`
+
+Render 無料 Web Service のコールドスタートで最初の応答が遅いことがあるため、既定では 60 秒待機し、失敗時は 15 秒おきに最大 3 回まで再試行します。
 
 ### 2. LaunchAgent を配置する
 

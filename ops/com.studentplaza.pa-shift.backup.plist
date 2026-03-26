@@ -15,6 +15,12 @@
       <string>/Users/YOUR_USER/Documents/PA-Shift-Backups</string>
       <string>--retention-days</string>
       <string>30</string>
+      <string>--timeout-ms</string>
+      <string>60000</string>
+      <string>--max-attempts</string>
+      <string>3</string>
+      <string>--retry-delay-ms</string>
+      <string>15000</string>
       <string>--timezone</string>
       <string>Asia/Tokyo</string>
     </array>

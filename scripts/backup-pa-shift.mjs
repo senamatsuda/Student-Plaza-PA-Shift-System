@@ -5,10 +5,12 @@ import { join, resolve } from "node:path";
 import { homedir } from "node:os";
 
 const DEFAULT_API_BASE_URL = "https://student-plaza-pa-shift-system.onrender.com";
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_OUTPUT_DIR = resolve(homedir(), "Documents", "PA-Shift-Backups");
 const DEFAULT_RETENTION_DAYS = 30;
 const DEFAULT_TIMEZONE = "Asia/Tokyo";
+const DEFAULT_MAX_ATTEMPTS = 3;
+const DEFAULT_RETRY_DELAY_MS = 15_000;
 const REQUIRED_KEYS = [
   "names",
   "specialDays",
@@ -21,7 +23,7 @@ const REQUIRED_KEYS = [
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const dataUrl = buildDataUrl(options.apiBaseUrl);
-  const payload = await fetchPayload(dataUrl, options.timeoutMs);
+  const payload = await fetchPayload(dataUrl, options);
   validatePayload(payload);
 
   const outputDir = resolve(options.outputDir);
@@ -52,6 +54,8 @@ function parseArgs(argv) {
     retentionDays: DEFAULT_RETENTION_DAYS,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     timezone: DEFAULT_TIMEZONE,
+    maxAttempts: DEFAULT_MAX_ATTEMPTS,
+    retryDelayMs: DEFAULT_RETRY_DELAY_MS,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -89,6 +93,14 @@ function parseArgs(argv) {
         assertTimeZone(options.timezone);
         index += 1;
         break;
+      case "--max-attempts":
+        options.maxAttempts = parsePositiveInteger(nextValue, "--max-attempts");
+        index += 1;
+        break;
+      case "--retry-delay-ms":
+        options.retryDelayMs = parsePositiveInteger(nextValue, "--retry-delay-ms");
+        index += 1;
+        break;
       default:
         throw new Error(`Unsupported argument: ${argument}`);
     }
@@ -115,6 +127,8 @@ Options:
   --retention-days <n>   Days of dated backups to keep
   --timeout-ms <n>       HTTP timeout in milliseconds
   --timezone <iana>      IANA timezone for filename dates
+  --max-attempts <n>     Number of fetch attempts before failing
+  --retry-delay-ms <n>   Delay between retries in milliseconds
   --help                 Show this help`);
 }
 
@@ -142,7 +156,38 @@ function buildDataUrl(apiBaseUrl) {
   return `${trimmed}/api/data`;
 }
 
-async function fetchPayload(url, timeoutMs) {
+async function fetchPayload(url, options) {
+  return fetchPayloadWithRetry(url, {
+    timeoutMs: options.timeoutMs,
+    maxAttempts: options.maxAttempts,
+    retryDelayMs: options.retryDelayMs,
+  });
+}
+
+async function fetchPayloadWithRetry(url, { timeoutMs, maxAttempts, retryDelayMs }) {
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await fetchPayloadOnce(url, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts) {
+        break;
+      }
+
+      console.error(
+        `Backup fetch attempt ${attempt}/${maxAttempts} failed: ${formatErrorMessage(error)}`
+      );
+      console.error(`Retrying in ${retryDelayMs}ms...`);
+      await sleep(retryDelayMs);
+    }
+  }
+
+  throw lastError ?? new Error("Backup fetch failed for an unknown reason");
+}
+
+async function fetchPayloadOnce(url, timeoutMs) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -172,6 +217,16 @@ async function fetchPayload(url, timeoutMs) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+function formatErrorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function sleep(ms) {
+  return new Promise((resolvePromise) => {
+    setTimeout(resolvePromise, ms);
+  });
 }
 
 function validatePayload(payload) {
