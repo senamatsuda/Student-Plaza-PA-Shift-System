@@ -1101,49 +1101,55 @@ async function handleAutoArrange() {
       return;
     }
 
-    const autoConfirmNames = new Set(
-      Object.entries(availabilityCount)
-        .filter(([, count]) => count > 0 && count <= 3)
-        .map(([name]) => name)
-    );
-
     confirmedShiftMap[monthKey] = {};
     const slotConfirmed = new Set();
     const confirmedCounts = {};
+    const confirmedHours = {};
+    const prevMonthConfirmedCounts = buildPreviousMonthConfirmedCounts(monthKey);
     const confirmItem = (item) => {
       const entryKey = buildConfirmedEntryKey(item);
       confirmedShiftMap[monthKey][entryKey] = true;
       slotConfirmed.add(`${item.date}|${item.slot}`);
       confirmedCounts[item.name] = (confirmedCounts[item.name] || 0) + 1;
+      const assignedHours = calculateAssignedHoursForSlotItem(item);
+      confirmedHours[item.name] = (confirmedHours[item.name] || 0) + assignedHours;
     };
-
-    slotEntries.forEach((slot) => {
-      slot.items.forEach((item) => {
-        if (autoConfirmNames.has(item.name)) {
-          confirmItem(item);
-        }
-      });
-    });
 
     slotEntries.forEach((slot) => {
       const slotKey = `${slot.dateKey}|${slot.slotKey}`;
       if (slotConfirmed.has(slotKey)) {
         return;
       }
-      const candidates = slot.items.filter(
-        (item) => !autoConfirmNames.has(item.name)
-      );
+      const candidates = slot.items;
       if (!candidates.length) {
         return;
       }
 
       candidates.sort((a, b) => {
-        const countA = confirmedCounts[a.name] || 0;
-        const countB = confirmedCounts[b.name] || 0;
-        if (countA !== countB) return countA - countB;
+        const projectedHoursA =
+          (confirmedHours[a.name] || 0) + calculateAssignedHoursForSlotItem(a);
+        const projectedHoursB =
+          (confirmedHours[b.name] || 0) + calculateAssignedHoursForSlotItem(b);
+        if (projectedHoursA !== projectedHoursB) {
+          return projectedHoursA - projectedHoursB;
+        }
+
+        const projectedCountA = (confirmedCounts[a.name] || 0) + 1;
+        const projectedCountB = (confirmedCounts[b.name] || 0) + 1;
+        if (projectedCountA !== projectedCountB) {
+          return projectedCountA - projectedCountB;
+        }
+
+        const prevMonthCountA = prevMonthConfirmedCounts[a.name] || 0;
+        const prevMonthCountB = prevMonthConfirmedCounts[b.name] || 0;
+        if (prevMonthCountA !== prevMonthCountB) {
+          return prevMonthCountA - prevMonthCountB;
+        }
+
         const availabilityA = availabilityCount[a.name] || 0;
         const availabilityB = availabilityCount[b.name] || 0;
         if (availabilityA !== availabilityB) return availabilityA - availabilityB;
+
         return a.name.localeCompare(b.name, "ja");
       });
 
@@ -1162,6 +1168,55 @@ async function handleAutoArrange() {
     autoArrangeButton.disabled = false;
     autoArrangeButton.textContent = originalLabel;
   }
+}
+
+function calculateAssignedHoursForSlotItem(item) {
+  const slotRange = item.slot === "morning" ? MORNING_RANGE : AFTERNOON_RANGE;
+  if (item.shiftType === "other") {
+    const overlap = calculateTimeOverlapRange(
+      item.start,
+      item.end,
+      slotRange.start,
+      slotRange.end
+    );
+    if (!overlap) return 0;
+    const overlapStart = timeToMinutes(overlap.start);
+    const overlapEnd = timeToMinutes(overlap.end);
+    if (overlapStart == null || overlapEnd == null || overlapStart >= overlapEnd) {
+      return 0;
+    }
+    return (overlapEnd - overlapStart) / 60;
+  }
+  const slotStart = timeToMinutes(slotRange.start);
+  const slotEnd = timeToMinutes(slotRange.end);
+  if (slotStart == null || slotEnd == null || slotStart >= slotEnd) {
+    return 0;
+  }
+  return (slotEnd - slotStart) / 60;
+}
+
+function buildPreviousMonthConfirmedCounts(monthKey) {
+  const previousMonthKey = getPreviousMonthKey(monthKey);
+  if (!previousMonthKey) return {};
+  const entries = confirmedShiftMap[previousMonthKey];
+  if (!entries) return {};
+
+  return Object.keys(entries).reduce((acc, entryKey) => {
+    const parsed = parseConfirmedEntryKey(entryKey);
+    if (!parsed || !parsed.name) {
+      return acc;
+    }
+    acc[parsed.name] = (acc[parsed.name] || 0) + 1;
+    return acc;
+  }, {});
+}
+
+function getPreviousMonthKey(monthKey) {
+  if (!monthKey) return "";
+  const [yearValue, monthValue] = monthKey.split("-").map(Number);
+  if (!yearValue || !monthValue) return "";
+  const date = new Date(yearValue, monthValue - 2, 1);
+  return formatMonthKey(date.getFullYear(), date.getMonth());
 }
 
 async function handleAdminRefresh() {
