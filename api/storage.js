@@ -51,7 +51,7 @@ async function read() {
         const payload = {
             names: names || [],
             specialDays: specialDays || [],
-            submissions: submissions || [],
+            submissions: normalizeSubmissionsForClient(submissions),
             confirmedShifts: deserializeConfirmedShifts(confirmedShifts || []),
             workdayAvailability: normalizeWorkdayAvailability(workdayAvailability),
             // カウンターは Supabase の自動採番 (serial PK) に任せるため不要
@@ -732,6 +732,32 @@ function normalizeSubmissionsForInsert(entries) {
             date: entry.date,
             monthKey: entry.monthKey,
             shiftType: entry.shiftType,
+            start: entry.start ?? null,
+            end: entry.end ?? null
+        });
+        return acc;
+    }, []);
+}
+
+function normalizeSubmissionsForClient(entries) {
+    return (entries || []).reduce((acc, entry) => {
+        if (!entry || typeof entry !== 'object') return acc;
+
+        const monthKey = entry.monthKey ?? entry.monthkey ?? deriveMonthKey(entry.date);
+        const shiftType = entry.shiftType ?? entry.shifttype;
+        if (
+            typeof entry.name !== 'string' ||
+            typeof entry.date !== 'string' ||
+            typeof monthKey !== 'string' ||
+            typeof shiftType !== 'string'
+        ) {
+            return acc;
+        }
+
+        acc.push({
+            ...entry,
+            monthKey,
+            shiftType,
             start: entry.start ?? null,
             end: entry.end ?? null
         });
