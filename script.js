@@ -709,15 +709,39 @@ function collectEntries() {
 
 async function refreshSubmissions() {
   const stored = readStorageArray(LOCAL_STORAGE_KEYS.submissions);
-  submissionEntries = stored.filter((entry) =>
-    Boolean(
-      entry &&
-        typeof entry.name === "string" &&
-        typeof entry.date === "string" &&
-        typeof entry.monthKey === "string" &&
-        typeof entry.shiftType === "string"
-    )
-  );
+  submissionEntries = stored
+    .map(normalizeSubmissionEntry)
+    .filter(Boolean);
+}
+
+function normalizeSubmissionEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+
+  const name = typeof entry.name === "string" ? entry.name : "";
+  const date = typeof entry.date === "string" ? entry.date : "";
+  // PostgreSQL folds unquoted camel-case identifiers to lower case. Accept both
+  // forms so data saved with either version of the documented schema is shown.
+  const monthKey = entry.monthKey ?? entry.monthkey ?? date.slice(0, 7);
+  const shiftType = entry.shiftType ?? entry.shifttype;
+
+  if (
+    !name ||
+    !date ||
+    typeof monthKey !== "string" ||
+    typeof shiftType !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    ...entry,
+    name,
+    date,
+    monthKey,
+    shiftType,
+    start: entry.start ?? null,
+    end: entry.end ?? null,
+  };
 }
 
 function saveSubmissionEntries(name, monthKey, entries) {
@@ -1247,7 +1271,9 @@ async function handleAdminRefresh() {
   adminRefreshButton.disabled = true;
   adminRefreshButton.textContent = "更新中...";
   try {
+    await syncRemoteDataFromServer();
     await refreshSubmissions();
+    loadConfirmedShiftMap();
     renderAdminTable();
   } finally {
     adminRefreshButton.disabled = false;
