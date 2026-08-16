@@ -617,9 +617,19 @@ async function handleSubmit(event) {
   }
 
   const monthKey = entries[0]?.monthKey;
+  const previousButtonDisabled = submitButton?.disabled;
   try {
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.setAttribute("aria-disabled", "true");
+    }
+    formStatus.textContent = "Supabase に保存しています...";
+    formStatus.style.color = "#334155";
     saveSubmissionEntries(name, monthKey, entries);
-    formStatus.textContent = "提出しました";
+    if (remoteSyncClient) {
+      await flushRemotePush();
+    }
+    formStatus.textContent = "提出しました（Supabase に保存済み）";
     formStatus.style.color = "#0f7b6c";
     await refreshSubmissions();
     renderCalendar();
@@ -630,6 +640,14 @@ async function handleSubmit(event) {
     formStatus.textContent = message;
     formStatus.style.color = "#b42318";
     window.alert(message);
+  } finally {
+    if (submitButton) {
+      const shouldDisable = remoteSyncClient
+        ? !remoteSyncState.isConnected
+        : Boolean(previousButtonDisabled);
+      submitButton.disabled = shouldDisable;
+      submitButton.setAttribute("aria-disabled", String(shouldDisable));
+    }
   }
 }
 
@@ -2302,6 +2320,29 @@ function scheduleRemotePush() {
       console.error("Failed to sync remote data", error);
     });
   }, 800);
+}
+
+async function flushRemotePush() {
+  if (!remoteSyncClient) return;
+
+  if (remotePushTimeoutId) {
+    clearTimeout(remotePushTimeoutId);
+    remotePushTimeoutId = null;
+  }
+
+  // A different settings update may already be using the single remote writer.
+  // Wait for it, then send a fresh payload that includes this submission.
+  while (remotePushInFlight) {
+    remotePushQueued = true;
+    await new Promise((resolve) => window.setTimeout(resolve, 50));
+  }
+
+  if (remotePushTimeoutId) {
+    clearTimeout(remotePushTimeoutId);
+    remotePushTimeoutId = null;
+  }
+  remotePushQueued = false;
+  await pushRemoteData();
 }
 
 async function pushRemoteData() {
