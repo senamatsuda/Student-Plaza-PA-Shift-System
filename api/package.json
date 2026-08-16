@@ -4,7 +4,8 @@
   "type": "module",
   "description": "Simple JSON storage API for Student Plaza PA Shift System",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",

@@ -1,5 +1,6 @@
 // api/storage.js (Supabase版)
 import { createClient } from '@supabase/supabase-js';
+import { fetchAllRows } from './supabase-pagination.js';
 
 const CONFIRMED_SHIFT_NOTE_PREFIX = '__confirmed_meta__:';
 
@@ -30,11 +31,11 @@ async function read() {
             { data: confirmedShifts, error: confirmedError },
             { data: workdayAvailability, error: workdayAvailabilityError }
         ] = await Promise.all([
-            supabase.from('names').select('*'),
-            supabase.from('special_days').select('*'),
-            supabase.from('submissions').select('*'),
-            supabase.from('confirmed_shifts').select('*'),
-            supabase.from('workday_availability').select('*')
+            fetchAllRows(supabase, 'names'),
+            fetchAllRows(supabase, 'special_days'),
+            fetchAllRows(supabase, 'submissions'),
+            fetchAllRows(supabase, 'confirmed_shifts'),
+            fetchAllRows(supabase, 'workday_availability', { orderColumn: 'date' })
         ]);
 
         // エラーチェック
@@ -97,11 +98,11 @@ async function write(payload) {
             { data: currentNames, error: fetchNamesError },
             { data: currentWorkdayAvailability, error: fetchWorkdayAvailabilityError }
         ] = await Promise.all([
-            supabase.from('submissions').select('*'),
-            supabase.from('confirmed_shifts').select('*'),
-            supabase.from('special_days').select('*'),
-            supabase.from('names').select('*'),
-            supabase.from('workday_availability').select('*')
+            fetchAllRows(supabase, 'submissions'),
+            fetchAllRows(supabase, 'confirmed_shifts'),
+            fetchAllRows(supabase, 'special_days'),
+            fetchAllRows(supabase, 'names'),
+            fetchAllRows(supabase, 'workday_availability', { orderColumn: 'date' })
         ]);
 
         if (
