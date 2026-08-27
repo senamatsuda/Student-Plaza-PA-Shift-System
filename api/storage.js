@@ -171,6 +171,123 @@ async function write(payload) {
     }
 }
 
+/**
+ * Replaces one PA's submissions for one month without accepting client-side IDs.
+ * New rows are always inserted without an ID so Supabase can assign it safely.
+ * @param {{name: string, monthKey: string, entries: Array}} submission
+ * @returns {Promise<Array>}
+ */
+async function replaceSubmissions(submission) {
+    const { name, monthKey, entries } = submission;
+
+    const { data: matchingNames, error: nameError } = await supabase
+        .from('names')
+        .select('name')
+        .eq('name', name)
+        .limit(1);
+
+    if (nameError) throw nameError;
+    if (!matchingNames?.length) {
+        const error = new Error('選択されたPAが登録されていません。');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const { data: currentRows, error: currentError } = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('name', name)
+        .eq('monthKey', monthKey);
+
+    if (currentError) throw currentError;
+
+    const currentByDate = new Map();
+    const duplicateIds = [];
+    normalizeSubmissionsForClient(currentRows || [])
+        .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))
+        .forEach((row) => {
+            if (currentByDate.has(row.date)) {
+                if (hasValidId(row.id)) duplicateIds.push(row.id);
+                return;
+            }
+            currentByDate.set(row.date, row);
+        });
+
+    const nextDates = new Set(entries.map((entry) => entry.date));
+    const rowsWithId = [];
+    const rowsWithoutId = [];
+
+    entries.forEach((entry) => {
+        const existing = currentByDate.get(entry.date);
+        if (existing && hasValidId(existing.id)) {
+            rowsWithId.push({ ...entry, id: existing.id });
+        } else {
+            rowsWithoutId.push({ ...entry });
+        }
+    });
+
+    // Write the requested rows first. If a write fails, the previously saved
+    // month remains intact and the client can safely retry.
+    if (rowsWithId.length) {
+        const { error: upsertError } = await supabase
+            .from('submissions')
+            .upsert(rowsWithId, { onConflict: 'id' });
+        if (upsertError) throw upsertError;
+    }
+
+    if (rowsWithoutId.length) {
+        const { error: insertError } = await supabase
+            .from('submissions')
+            .insert(rowsWithoutId.map(stripIdField));
+        if (insertError) throw insertError;
+    }
+
+    const staleIds = Array.from(currentByDate.values())
+        .filter((row) => !nextDates.has(row.date) && hasValidId(row.id))
+        .map((row) => row.id);
+    const idsToDelete = Array.from(new Set([...duplicateIds, ...staleIds]));
+
+    if (idsToDelete.length) {
+        await deleteRowsByColumn({
+            tableName: 'submissions',
+            columnName: 'id',
+            values: idsToDelete
+        });
+    }
+
+    const { data: savedRows, error: savedError } = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('name', name)
+        .eq('monthKey', monthKey)
+        .order('date', { ascending: true });
+
+    if (savedError) throw savedError;
+
+    const normalizedSavedRows = normalizeSubmissionsForClient(savedRows || []);
+    if (!submissionRowsMatch(entries, normalizedSavedRows)) {
+        throw new Error('Database verification failed after saving submissions.');
+    }
+
+    return normalizedSavedRows;
+}
+
+function submissionRowsMatch(expectedRows, actualRows) {
+    if (expectedRows.length !== actualRows.length) return false;
+
+    const actualByDate = new Map(actualRows.map((row) => [row.date, row]));
+    return expectedRows.every((expected) => {
+        const actual = actualByDate.get(expected.date);
+        return (
+            actual?.name === expected.name &&
+            actual?.monthKey === expected.monthKey &&
+            actual?.shiftType === expected.shiftType &&
+            normalizeValue(actual?.start) === normalizeValue(expected.start) &&
+            normalizeValue(actual?.end) === normalizeValue(expected.end)
+        );
+    });
+}
+
 async function deleteRowsByColumn({ tableName, columnName, values }) {
     const filteredValues = Array.from(
         new Set((values || []).filter((value) => value !== undefined && value !== null))
@@ -795,6 +912,7 @@ export function createStorage(dataFilePath) {
     return {
         read,
         write,
+        replaceSubmissions,
         deleteRowsByColumn
     };
 }

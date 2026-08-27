@@ -97,7 +97,8 @@ CREATE TABLE IF NOT EXISTS submissions (
   "monthKey" TEXT NOT NULL,
   "shiftType" TEXT NOT NULL,
   start TEXT,
-  "end" TEXT
+  "end" TEXT,
+  UNIQUE (name, "monthKey", date)
 );
 
 -- 4) confirmed_shifts: 確定シフト (Admin での確定結果)
@@ -124,6 +125,10 @@ CREATE TABLE IF NOT EXISTS workday_availability (
 ALTER TABLE names
 ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 ```
+
+既存の `submissions` テーブルを利用している場合は、複数端末からの同時提出で別のシフトが上書きされないよう、`api/migrations/20260827_unique_submission_scope.sql` もSupabaseのSQL Editorで一度実行してください。このSQLは同一PA・同一月・同一日付の重複を最新行に整理してから一意制約を追加します。
+
+シフト提出は `POST /api/submissions` で対象PA・対象月だけを保存します。APIはSupabaseから保存結果を読み直して返し、画面は返却内容が提出内容と一致した場合だけ「保存済み」と表示します。
 
 - `config.js` の `apiBaseUrl` を設定すると、起動時に Supabase (または Render) の API から JSON を取得し、以降の更新も数秒以内に同期されます。
 - API が未設定、またはネットワーク障害がある場合は同期ステータスが警告/エラー表示となり、ブラウザ内のみで保存されます。
