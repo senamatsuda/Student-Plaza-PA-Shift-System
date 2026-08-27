@@ -5,6 +5,7 @@ window.PA_SHIFT_CONFIG = Object.assign(
   {
     apiBaseUrl: "https://student-plaza-pa-shift-system.onrender.com",
     apiTimeoutMs: 10000,
+    submissionTimeoutMs: 60000,
   },
   window.PA_SHIFT_CONFIG || {}
 );

@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import morgan from "morgan";
 import { createStorage } from "./storage.js";
+import { validateSubmissionRequest } from "./submission-request.js";
 
 const PORT = process.env.PORT || 10000;
 const DATA_FILE = process.env.DATA_FILE || "./api-data.json";
@@ -60,6 +61,27 @@ app.post("/api/data", async (req, res, next) => {
   }
 });
 
+app.post("/api/submissions", async (req, res, next) => {
+  let submission;
+  try {
+    submission = validateSubmissionRequest(req.body);
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  try {
+    const submissions = await storage.replaceSubmissions(submission);
+    return res.status(200).json({
+      ok: true,
+      name: submission.name,
+      monthKey: submission.monthKey,
+      submissions,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 
 app.post("/api/admin/delete", async (req, res, next) => {
   try {
@@ -102,7 +124,10 @@ app.post("/api/admin/delete", async (req, res, next) => {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: "Internal server error" });
+  const statusCode = Number(err?.statusCode) || 500;
+  const message =
+    statusCode >= 500 ? "Internal server error" : err.message || "Request failed";
+  res.status(statusCode).json({ error: message });
 });
 
 app.listen(PORT, () => {

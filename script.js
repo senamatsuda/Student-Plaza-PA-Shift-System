@@ -106,9 +106,6 @@ const paNameSaveButton = document.getElementById("paNameSaveButton");
 const syncStatus = document.getElementById("syncStatus");
 const submitButton = form?.querySelector("button[type=\"submit\"]");
 
-const RENDER_UNAVAILABLE_MESSAGE =
-  "Render と接続できないため、シフトを提出できません。";
-
 const template = document.getElementById("shiftRowTemplate");
 const WORKDAY_MONTH_OPTION_COUNT = 12;
 
@@ -278,6 +275,15 @@ function syncStorageCounter(type, items) {
   storageSetItem(key, String(nextValue));
 }
 
+if (form) {
+  form.addEventListener("submit", handleSubmit);
+}
+if (submitButton) {
+  submitButton.dataset.initializing = "true";
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-disabled", "true");
+}
+
 init().catch((error) => {
   console.error("Failed to initialize application", error);
   if (formStatus) {
@@ -318,7 +324,6 @@ async function init() {
       "注意: このブラウザではデータが一時的にしか保存されません。";
     formStatus.style.color = "#b54708";
   }
-  form.addEventListener("submit", handleSubmit);
   monthPicker.addEventListener("change", renderCalendar);
   studentNameSelect.addEventListener("change", renderCalendar);
   if (autoArrangeButton) {
@@ -371,6 +376,10 @@ async function init() {
   window.addEventListener("offline", handleOfflineStatusChange);
   window.addEventListener("pagehide", handlePageHide);
   renderAdminTable();
+  if (submitButton) {
+    submitButton.dataset.initializing = "false";
+  }
+  updateSubmitAvailability();
 }
 
 async function initializePaNames() {
@@ -603,14 +612,6 @@ function generateTimeSlots(startHour, endHour, stepMinutes) {
 
 async function handleSubmit(event) {
   event.preventDefault();
-  if (remoteSyncClient) {
-    const canSubmit = await ensureRemoteConnection();
-    if (!canSubmit) {
-      formStatus.textContent = RENDER_UNAVAILABLE_MESSAGE;
-      formStatus.style.color = "#b42318";
-      return;
-    }
-  }
   const name = studentNameSelect.value;
   let entries;
   try {
@@ -628,36 +629,75 @@ async function handleSubmit(event) {
   }
 
   const monthKey = entries[0]?.monthKey;
-  const previousButtonDisabled = submitButton?.disabled;
+  let successMessage = "";
   try {
     if (submitButton) {
+      submitButton.dataset.submitting = "true";
       submitButton.disabled = true;
       submitButton.setAttribute("aria-disabled", "true");
     }
     formStatus.textContent = "Supabase に保存しています...";
     formStatus.style.color = "#334155";
-    saveSubmissionEntries(name, monthKey, entries);
+    // Keep a local copy for retry, but do not send the entire application
+    // dataset. The dedicated endpoint only updates this PA and month.
+    saveSubmissionEntries(name, monthKey, entries, { syncRemote: false });
     if (remoteSyncClient) {
-      await flushRemotePush();
+      const result = await remoteSyncClient.submitSubmission({
+        name,
+        monthKey,
+        entries,
+      });
+      const savedEntries = validateSubmissionSaveResponse(
+        result,
+        name,
+        monthKey,
+        entries
+      );
+      saveSubmissionEntries(name, monthKey, savedEntries, {
+        syncRemote: false,
+      });
+      setRemoteConnectionStatus(true);
+      remoteSyncState.lastPush = new Date();
+      updateSyncStatus(
+        `Render に保存しました (${formatTimestamp(remoteSyncState.lastPush)})`
+      );
+      successMessage = "提出しました（Supabase に保存済み）";
+    } else {
+      successMessage = "提出しました（このブラウザに保存済み）";
     }
-    formStatus.textContent = "提出しました（Supabase に保存済み）";
-    formStatus.style.color = "#0f7b6c";
     await refreshSubmissions();
     renderCalendar();
     renderAdminTable();
+    formStatus.textContent = successMessage;
+    formStatus.style.color = "#0f7b6c";
   } catch (error) {
     console.error("Failed to submit shifts", error);
-    const message = error?.message || STORAGE_ERROR_MESSAGE;
+    if (remoteSyncClient) {
+      setRemoteConnectionStatus(false);
+      updateSyncStatus(
+        "提出内容をサーバーに保存できませんでした。入力内容はこの画面に残っています。",
+        "error"
+      );
+    }
+    let message = error?.message || STORAGE_ERROR_MESSAGE;
+    if (error?.name === "AbortError") {
+      message =
+        "サーバーの起動に時間がかかっています。入力内容は残っているため、もう一度提出してください。";
+    } else if (
+      error?.name === "TypeError" ||
+      message === "Failed to fetch" ||
+      message === "Load failed"
+    ) {
+      message =
+        "サーバーに接続できませんでした。入力内容は残っているため、通信状態を確認してもう一度提出してください。";
+    }
     formStatus.textContent = message;
     formStatus.style.color = "#b42318";
-    window.alert(message);
   } finally {
     if (submitButton) {
-      const shouldDisable = remoteSyncClient
-        ? !remoteSyncState.isConnected
-        : Boolean(previousButtonDisabled);
-      submitButton.disabled = shouldDisable;
-      submitButton.setAttribute("aria-disabled", String(shouldDisable));
+      submitButton.dataset.submitting = "false";
+      submitButton.disabled = false;
+      submitButton.setAttribute("aria-disabled", "false");
     }
   }
 }
@@ -755,7 +795,12 @@ function normalizeSubmissionEntry(entry) {
   };
 }
 
-function saveSubmissionEntries(name, monthKey, entries) {
+function saveSubmissionEntries(
+  name,
+  monthKey,
+  entries,
+  { syncRemote = true } = {}
+) {
   const nextEntriesByKey = new Map(
     entries.map((entry) => [buildSubmissionEntryKey(entry), entry])
   );
@@ -778,7 +823,9 @@ function saveSubmissionEntries(name, monthKey, entries) {
     nextEntriesByKey.delete(entryKey);
 
     if (areSubmissionEntriesEqual(entry, nextEntry)) {
-      nextSubmissionEntries.push(entry);
+      nextSubmissionEntries.push(
+        nextEntry.id != null || entry.id == null ? nextEntry : entry
+      );
       return;
     }
 
@@ -792,8 +839,43 @@ function saveSubmissionEntries(name, monthKey, entries) {
   });
 
   submissionEntries = nextSubmissionEntries;
-  queueSubmissionSyncScope(name, monthKey);
-  persistSubmissions();
+  if (syncRemote) {
+    queueSubmissionSyncScope(name, monthKey);
+  }
+  persistSubmissions({ scheduleRemote: syncRemote });
+}
+
+function validateSubmissionSaveResponse(
+  response,
+  expectedName,
+  expectedMonthKey,
+  expectedEntries
+) {
+  if (
+    !response?.ok ||
+    response.name !== expectedName ||
+    response.monthKey !== expectedMonthKey ||
+    !Array.isArray(response.submissions)
+  ) {
+    throw new Error("サーバーから保存結果を確認できませんでした。");
+  }
+
+  const savedEntries = response.submissions
+    .map(normalizeSubmissionEntry)
+    .filter(Boolean);
+  const savedByDate = new Map(savedEntries.map((entry) => [entry.date, entry]));
+  const isVerified =
+    savedEntries.length === expectedEntries.length &&
+    expectedEntries.every((expected) => {
+      const saved = savedByDate.get(expected.date);
+      return saved && areSubmissionEntriesEqual(saved, expected);
+    });
+
+  if (!isVerified) {
+    throw new Error("保存結果が提出内容と一致しませんでした。もう一度提出してください。");
+  }
+
+  return savedEntries;
 }
 
 function buildSubmissionEntryKey(entry) {
@@ -870,9 +952,11 @@ function clearPendingSubmissionSyncScopes(scopes) {
   });
 }
 
-function persistSubmissions() {
+function persistSubmissions({ scheduleRemote = true } = {}) {
   writeStorageArray(LOCAL_STORAGE_KEYS.submissions, submissionEntries);
-  scheduleRemotePush();
+  if (scheduleRemote) {
+    scheduleRemotePush();
+  }
 }
 
 function renderAdminTable() {
@@ -2453,7 +2537,9 @@ function handleOnlineStatusChange() {
   if (!remoteSyncClient) return;
   setRemoteConnectionStatus(false);
   updateSyncStatus("オンラインになりました。最新の変更を保存します。");
-  scheduleRemotePush();
+  if (remoteHasPendingChanges) {
+    scheduleRemotePush();
+  }
 }
 
 function handleOfflineStatusChange() {
@@ -2692,35 +2778,17 @@ function updateSyncStatus(message, variant = "info") {
 }
 
 function updateSubmitAvailability() {
-  if (!remoteSyncClient || !submitButton) return;
-  const shouldDisable = !remoteSyncState.isConnected;
+  if (!submitButton) return;
+  const isInitializing = submitButton.dataset.initializing === "true";
+  const isSubmitting = submitButton.dataset.submitting === "true";
+  const shouldDisable = isInitializing || isSubmitting;
   submitButton.disabled = shouldDisable;
   submitButton.setAttribute("aria-disabled", String(shouldDisable));
-  if (shouldDisable) {
-    formStatus.textContent = RENDER_UNAVAILABLE_MESSAGE;
-    formStatus.style.color = "#b42318";
-  } else if (formStatus.textContent === RENDER_UNAVAILABLE_MESSAGE) {
-    formStatus.textContent = "";
-  }
 }
 
 function setRemoteConnectionStatus(isConnected) {
   remoteSyncState.isConnected = Boolean(isConnected);
   updateSubmitAvailability();
-}
-
-async function ensureRemoteConnection() {
-  if (!remoteSyncClient) return true;
-  if (remoteSyncState.isConnected) return true;
-  try {
-    await remoteSyncClient.ping();
-    setRemoteConnectionStatus(true);
-    return true;
-  } catch (error) {
-    console.warn("Remote connectivity check failed", error);
-    setRemoteConnectionStatus(false);
-    return false;
-  }
 }
 
 function formatTimestamp(date) {
@@ -2740,25 +2808,39 @@ function createRemoteSyncClient() {
     return null;
   }
   const timeout = Number(config.apiTimeoutMs) || 10000;
+  const submissionTimeout = Number(config.submissionTimeoutMs) || 60000;
   const normalizedBase = baseUrl.endsWith("/")
     ? baseUrl.slice(0, -1)
     : baseUrl;
 
   async function request(path, options = {}) {
+    const {
+      timeoutMs: requestTimeout = timeout,
+      ...fetchOptions
+    } = options;
     const controller = new AbortController();
-    const timer = window.setTimeout(() => controller.abort(), timeout);
+    const timer = window.setTimeout(() => controller.abort(), requestTimeout);
     try {
-      const headers = options.body
-        ? { "Content-Type": "application/json", ...(options.headers || {}) }
-        : options.headers;
+      const headers = fetchOptions.body
+        ? {
+            "Content-Type": "application/json",
+            ...(fetchOptions.headers || {}),
+          }
+        : fetchOptions.headers;
       const response = await fetch(`${normalizedBase}${path}`, {
-        ...options,
+        ...fetchOptions,
         headers,
         signal: controller.signal,
       });
       if (!response.ok) {
         const text = await response.text();
-        throw new Error(text || response.statusText || "Request failed");
+        let message = text;
+        try {
+          message = JSON.parse(text)?.error || text;
+        } catch (error) {
+          // Keep the plain-text response when it is not JSON.
+        }
+        throw new Error(message || response.statusText || "Request failed");
       }
       if (response.status === 204) {
         return null;
@@ -2777,6 +2859,13 @@ function createRemoteSyncClient() {
       return request("/api/data", {
         method: "POST",
         body: JSON.stringify(payload),
+      });
+    },
+    async submitSubmission(payload) {
+      return request("/api/submissions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        timeoutMs: submissionTimeout,
       });
     },
     pushKeepalive(payload) {
