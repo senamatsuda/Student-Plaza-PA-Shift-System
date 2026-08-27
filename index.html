@@ -242,17 +242,24 @@
               <div class="pa-manager">
                 <div>
                   <h3>PAの名前を管理</h3>
-                  <p>シフト入力で選択できる名前を追加・編集できます。</p>
+                  <p>
+                    名前の追加・編集、利用状態の切り替え、削除ができます。変更は「変更を保存」を押すまでDatabaseに反映されません。
+                  </p>
                 </div>
                 <form id="paNameForm" class="pa-name-form">
                   <label>
                     <span>新しい名前</span>
                     <input type="text" id="paNameInput" maxlength="20" />
                   </label>
-                  <button type="submit" class="primary">追加</button>
-                  <span id="paNameStatus" role="status" aria-live="polite"></span>
+                  <button type="submit" class="secondary">一覧に追加</button>
                 </form>
                 <ul id="paNameList" class="pa-name-list" aria-live="polite"></ul>
+                <div class="pa-name-save-actions">
+                  <button id="paNameSaveButton" type="button" class="primary" disabled>
+                    変更を保存
+                  </button>
+                  <span id="paNameStatus" role="status" aria-live="polite"></span>
+                </div>
               </div>
             </section>
 

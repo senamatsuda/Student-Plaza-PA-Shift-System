@@ -516,6 +516,7 @@ button:hover {
 
 .pa-name-item {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
   padding: 0.75rem 0.85rem;
@@ -548,10 +549,94 @@ button:hover {
   color: #ef4444;
 }
 
+.pa-name-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 88px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: #475467;
+}
+
+.pa-name-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.pa-name-toggle__track {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #cbd5e1;
+  transition: background 0.2s ease;
+}
+
+.pa-name-toggle__track::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 25%);
+  transition: transform 0.2s ease;
+}
+
+.pa-name-toggle input:checked + .pa-name-toggle__track {
+  background: #0f7b6c;
+}
+
+.pa-name-toggle input:checked + .pa-name-toggle__track::after {
+  transform: translateX(18px);
+}
+
+.pa-name-toggle input:focus-visible + .pa-name-toggle__track {
+  outline: 3px solid rgb(44 123 229 / 30%);
+  outline-offset: 2px;
+}
+
+.pa-name-toggle__label {
+  min-width: 2.5em;
+}
+
+.pa-name-item.is-inactive .pa-name-field {
+  color: #64748b;
+  background: #f8fafc;
+}
+
+.pa-name-save-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+}
+
+.pa-name-save-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .pa-name-empty {
   text-align: center;
   color: #94a3b8;
   padding: 0.5rem;
+}
+
+@media (max-width: 560px) {
+  .pa-name-field {
+    flex-basis: 100%;
+  }
+
+  .pa-name-actions {
+    margin-left: auto;
+  }
 }
 
 .special-day-list {
