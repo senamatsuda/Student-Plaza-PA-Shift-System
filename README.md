@@ -8,7 +8,7 @@ API を設定しない場合はブラウザの LocalStorage のみで動作し�
 
 - **PA入力タブ**: 平日だけを表示するカレンダーで午前/午後/1日/勤務不可/その他を選択して提出できます。
 - **Admin › 特別日追加**: 授業振替日などを登録し、PA入力カレンダーと集計表に反映します。
-- **Admin › PA編集**: シフト入力で選べる名前を追加・更新・削除できます。
+- **Admin › PA編集**: 名前の追加・更新・削除・オン/オフを編集し、保存ボタンでまとめて Database に反映できます。
 - **Admin › シフト調整**: 提出済みデータを午前/午後スロットごとに並べ替えて確認し、確定済みのシフトを画像として保存できます。
 - **Admin › 出勤日指定**: 夏季・冬季・春季休暇などにて、平日で出勤日がない日が事前に確定し、シフト提出が必要ない場合、「出勤なし」と指定できます。
 
@@ -72,13 +72,14 @@ SUPABASE_URL=... SUPABASE_SERVICE_KEY=... npm --prefix api start
 
 ### Supabase で利用するテーブル例
 
-Render API と同じ JSON 形式で同期するため、Supabase でも以下のテーブルを用意してください（すべて `TEXT` で揃えています）。
+Render API と同じ JSON 形式で同期するため、Supabase でも以下のテーブルを用意してください。
 
 ```sql
 -- 1) names: PA 名簿
 CREATE TABLE IF NOT EXISTS names (
   id SERIAL PRIMARY KEY,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- 2) special_days: 特別日
@@ -115,6 +116,13 @@ CREATE TABLE IF NOT EXISTS workday_availability (
   date TEXT PRIMARY KEY,
   isAvailable BOOLEAN NOT NULL DEFAULT TRUE
 );
+```
+
+既存の `names` テーブルを利用している場合は、PA編集のオン/オフ状態を保存するため、次のSQLを一度実行してください。
+
+```sql
+ALTER TABLE names
+ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 ```
 
 - `config.js` の `apiBaseUrl` を設定すると、起動時に Supabase (または Render) の API から JSON を取得し、以降の更新も数秒以内に同期されます。

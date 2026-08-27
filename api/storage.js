@@ -152,7 +152,10 @@ async function write(payload) {
             nextRows: normalizedNames,
             currentRows: currentNames || [],
             keyFn: (row) => row.id,
-            compareKeys: ['name']
+            compareKeys: ['name', 'is_active'],
+            // The PA editor sends the complete roster only when its explicit
+            // save button is pressed, so missing rows are intentional deletes.
+            deleteMissingRows: true
         });
 
         await syncWorkdayAvailabilityWithDiff({

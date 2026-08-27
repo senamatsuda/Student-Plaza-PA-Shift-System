@@ -54,6 +54,8 @@ let holidayMap = {};
 let specialDayEntries = [];
 let specialDayMap = {};
 let paNames = [];
+let paNameDrafts = [];
+let paNameChangesPending = false;
 let confirmedShiftMap = {};
 let workdayAvailabilityEntries = [];
 let workdayAvailabilityMap = {};
@@ -100,6 +102,7 @@ const paNameForm = document.getElementById("paNameForm");
 const paNameInput = document.getElementById("paNameInput");
 const paNameStatus = document.getElementById("paNameStatus");
 const paNameList = document.getElementById("paNameList");
+const paNameSaveButton = document.getElementById("paNameSaveButton");
 const syncStatus = document.getElementById("syncStatus");
 const submitButton = form?.querySelector("button[type=\"submit\"]");
 
@@ -358,6 +361,11 @@ async function init() {
   }
   if (paNameList) {
     paNameList.addEventListener("click", handlePaNameListClick);
+    paNameList.addEventListener("input", handlePaNameListInput);
+    paNameList.addEventListener("change", handlePaNameListChange);
+  }
+  if (paNameSaveButton) {
+    paNameSaveButton.addEventListener("click", handlePaNameSave);
   }
   window.addEventListener("online", handleOnlineStatusChange);
   window.addEventListener("offline", handleOfflineStatusChange);
@@ -367,6 +375,7 @@ async function init() {
 
 async function initializePaNames() {
   await refreshPaNames();
+  resetPaNameDrafts();
   populateNameSelects();
   renderPaNameList();
 }
@@ -383,6 +392,7 @@ async function refreshPaNames() {
       return {
         id: Number.isFinite(id) ? id : index + 1,
         name: entry.name?.trim() || "",
+        is_active: entry.is_active !== false,
       };
     })
     .filter((entry) => Boolean(entry.name));
@@ -392,7 +402,11 @@ async function refreshPaNames() {
     const existing = namesByName.get(entry.name);
     const fallbackId = existing?.id || index + 1;
     const id = Number.isFinite(entry.id) ? entry.id : fallbackId;
-    namesByName.set(entry.name, { id, name: entry.name });
+    namesByName.set(entry.name, {
+      id,
+      name: entry.name,
+      is_active: entry.is_active,
+    });
   });
 
   paNames = Array.from(namesByName.values());
@@ -400,15 +414,10 @@ async function refreshPaNames() {
 
   const serialized = JSON.stringify(paNames);
   if (serialized !== storedRaw) {
-    persistPaNames();
+    writeStorageArray(LOCAL_STORAGE_KEYS.names, paNames);
   }
 
   syncStorageCounter("names", paNames);
-}
-
-function persistPaNames() {
-  writeStorageArray(LOCAL_STORAGE_KEYS.names, paNames);
-  scheduleRemotePush();
 }
 
 function populateNameSelects() {
@@ -417,14 +426,16 @@ function populateNameSelects() {
     Array.from(adminNameFilter.selectedOptions).map((option) => option.value)
   );
 
-  if (!paNames.length) {
+  const activePaNames = paNames.filter((entry) => entry.is_active !== false);
+
+  if (!activePaNames.length) {
     studentNameSelect.innerHTML =
       '<option value="" selected disabled>PAメンバーが登録されていません</option>';
     adminNameFilter.innerHTML = "";
     return;
   }
 
-  const nameList = paNames.map((entry) => entry.name);
+  const nameList = activePaNames.map((entry) => entry.name);
 
   studentNameSelect.innerHTML = nameList
     .map((name) => `<option value="${name}">${name}</option>`)
@@ -873,8 +884,16 @@ function renderAdminTable() {
     (option) => option.value
   );
   const weekdays = getWeekdays(year, month);
+  const activeNames = new Set(
+    paNames
+      .filter((entry) => entry.is_active !== false)
+      .map((entry) => entry.name)
+  );
   const submissions = submissionEntries.filter(
-    (entry) => entry.monthKey === monthKey && (filters.length === 0 || filters.includes(entry.name))
+    (entry) =>
+      entry.monthKey === monthKey &&
+      activeNames.has(entry.name) &&
+      (filters.length === 0 || filters.includes(entry.name))
   );
 
   const grouped = groupByDate(submissions);
@@ -997,14 +1016,15 @@ function renderUnsubmittedList() {
       .filter((entry) => entry.monthKey === monthKey && entry.name)
       .map((entry) => entry.name)
   );
-  const unsubmittedNames = paNames
+  const activePaNames = paNames.filter((entry) => entry.is_active !== false);
+  const unsubmittedNames = activePaNames
     .map((entry) => entry.name)
     .filter((name) => !submittedNames.has(name))
     .sort((a, b) => a.localeCompare(b, "ja"));
 
   unsubmittedList.innerHTML = "";
 
-  if (!paNames.length) {
+  if (!activePaNames.length) {
     const empty = document.createElement("p");
     empty.className = "unsubmitted-empty";
     empty.textContent = "PAメンバーが登録されていません。";
@@ -1302,8 +1322,13 @@ function createEmptyEntryGroup() {
 }
 
 function buildSlotEntriesForMonth(monthKey, weekdays) {
-  const submissions = submissionEntries.filter((entry) =>
-    entry.monthKey === monthKey
+  const activeNames = new Set(
+    paNames
+      .filter((entry) => entry.is_active !== false)
+      .map((entry) => entry.name)
+  );
+  const submissions = submissionEntries.filter(
+    (entry) => entry.monthKey === monthKey && activeNames.has(entry.name)
   );
   const grouped = groupByDate(submissions);
   const slotEntries = [];
@@ -2150,7 +2175,7 @@ function updateWorkdayAvailabilityStatus(message, color = "#0f7b6c") {
 function renderPaNameList() {
   if (!paNameList) return;
   paNameList.innerHTML = "";
-  if (!paNames.length) {
+  if (!paNameDrafts.length) {
     const empty = document.createElement("li");
     empty.className = "pa-name-empty";
     empty.textContent = "登録されている名前はありません";
@@ -2158,24 +2183,44 @@ function renderPaNameList() {
     return;
   }
   const fragment = document.createDocumentFragment();
-  paNames.forEach((entry) => {
+  paNameDrafts.forEach((entry) => {
     const item = document.createElement("li");
     item.className = "pa-name-item";
+    item.classList.toggle("is-inactive", entry.is_active === false);
     item.dataset.id = String(entry.id);
 
     const input = document.createElement("input");
     input.type = "text";
     input.className = "pa-name-field";
+    input.maxLength = 20;
+    input.dataset.paNameField = "name";
+    input.dataset.id = String(entry.id);
+    input.setAttribute("aria-label", "PAの名前");
     input.value = entry.name;
+
+    const toggle = document.createElement("label");
+    toggle.className = "pa-name-toggle";
+
+    const toggleInput = document.createElement("input");
+    toggleInput.type = "checkbox";
+    toggleInput.role = "switch";
+    toggleInput.checked = entry.is_active !== false;
+    toggleInput.dataset.paNameField = "is_active";
+    toggleInput.dataset.id = String(entry.id);
+    toggleInput.setAttribute("aria-label", `${entry.name}の利用状態`);
+
+    const toggleTrack = document.createElement("span");
+    toggleTrack.className = "pa-name-toggle__track";
+    toggleTrack.setAttribute("aria-hidden", "true");
+
+    const toggleLabel = document.createElement("span");
+    toggleLabel.className = "pa-name-toggle__label";
+    toggleLabel.textContent = entry.is_active === false ? "オフ" : "オン";
+
+    toggle.append(toggleInput, toggleTrack, toggleLabel);
 
     const actions = document.createElement("div");
     actions.className = "pa-name-actions";
-
-    const saveButton = document.createElement("button");
-    saveButton.type = "button";
-    saveButton.dataset.paNameAction = "save";
-    saveButton.dataset.id = String(entry.id);
-    saveButton.textContent = "保存";
 
     const removeButton = document.createElement("button");
     removeButton.type = "button";
@@ -2183,11 +2228,23 @@ function renderPaNameList() {
     removeButton.dataset.id = String(entry.id);
     removeButton.textContent = "削除";
 
-    actions.append(saveButton, removeButton);
-    item.append(input, actions);
+    actions.append(removeButton);
+    item.append(input, toggle, actions);
     fragment.appendChild(item);
   });
   paNameList.appendChild(fragment);
+}
+
+function resetPaNameDrafts() {
+  paNameDrafts = paNames.map((entry) => ({ ...entry }));
+  setPaNameChangesPending(false);
+}
+
+function setPaNameChangesPending(isPending) {
+  paNameChangesPending = Boolean(isPending);
+  if (paNameSaveButton) {
+    paNameSaveButton.disabled = !paNameChangesPending;
+  }
 }
 
 async function handlePaNameSubmit(event) {
@@ -2198,82 +2255,192 @@ async function handlePaNameSubmit(event) {
     updatePaNameStatus("名前を入力してください", "#b42318");
     return;
   }
-  if (paNames.some((entry) => entry.name === newName)) {
+  if (paNameDrafts.some((entry) => entry.name.trim() === newName)) {
     updatePaNameStatus("同じ名前が既にあります", "#b42318");
     return;
   }
-  try {
-    const id = getNextStorageId("names");
-    paNames = [...paNames, { id, name: newName }];
-    persistPaNames();
-    await refreshPaNames();
-    populateNameSelects();
-    renderPaNameList();
-    updatePaNameStatus("追加しました");
-    paNameForm.reset();
-    renderCalendar();
-    renderAdminTable();
-  } catch (error) {
-    console.error("Failed to add PA name", error);
-    updatePaNameStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
-  }
+  const highestDraftId = paNameDrafts.reduce((max, entry) => {
+    const id = Number(entry.id);
+    return Number.isFinite(id) ? Math.max(max, id) : max;
+  }, 0);
+  const id = Math.max(getStorageCounterValue("names"), highestDraftId + 1);
+  paNameDrafts = [...paNameDrafts, { id, name: newName, is_active: true }];
+  setPaNameChangesPending(true);
+  renderPaNameList();
+  updatePaNameStatus("一覧に追加しました。変更を保存すると反映されます。");
+  paNameForm.reset();
 }
 
-async function handlePaNameListClick(event) {
+function handlePaNameListInput(event) {
+  const input = event.target.closest('[data-pa-name-field="name"]');
+  if (!input) return;
+  const draft = findPaNameDraft(input.dataset.id);
+  if (!draft) return;
+  draft.name = input.value;
+  setPaNameChangesPending(true);
+  updatePaNameStatus("未保存の変更があります。", "#b54708");
+}
+
+function handlePaNameListChange(event) {
+  const toggle = event.target.closest('[data-pa-name-field="is_active"]');
+  if (!toggle) return;
+  const draft = findPaNameDraft(toggle.dataset.id);
+  if (!draft) return;
+  draft.is_active = toggle.checked;
+  const item = toggle.closest(".pa-name-item");
+  item?.classList.toggle("is-inactive", !toggle.checked);
+  const label = item?.querySelector(".pa-name-toggle__label");
+  if (label) {
+    label.textContent = toggle.checked ? "オン" : "オフ";
+  }
+  setPaNameChangesPending(true);
+  updatePaNameStatus("未保存の変更があります。", "#b54708");
+}
+
+function findPaNameDraft(idValue) {
+  const id = Number(idValue);
+  if (!Number.isFinite(id)) return null;
+  return paNameDrafts.find((entry) => entry.id === id) || null;
+}
+
+function handlePaNameListClick(event) {
   const actionButton = event.target.closest("[data-pa-name-action]");
   if (!actionButton) return;
   const id = Number(actionButton.dataset.id);
   if (Number.isNaN(id)) return;
-  const action = actionButton.dataset.paNameAction;
-  const item = actionButton.closest(".pa-name-item");
-  if (!item) return;
-  const input = item.querySelector(".pa-name-field");
-  if (!input) return;
-  const target = paNames.find((entry) => entry.id === id);
+  const target = findPaNameDraft(id);
   if (!target) {
     updatePaNameStatus("選択されたPAが見つかりません", "#b42318");
     return;
   }
 
+  if (actionButton.dataset.paNameAction === "remove") {
+    paNameDrafts = paNameDrafts.filter((entry) => entry.id !== id);
+    setPaNameChangesPending(true);
+    renderPaNameList();
+    updatePaNameStatus(
+      `${target.name}を削除予定にしました。変更を保存すると反映されます。`,
+      "#b54708"
+    );
+  }
+}
+
+async function handlePaNameSave() {
+  if (!paNameChangesPending || !paNameSaveButton) return;
+
+  const nextNames = paNameDrafts
+    .map((entry) => ({
+      id: entry.id,
+      name: entry.name.trim(),
+      is_active: entry.is_active !== false,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  if (nextNames.some((entry) => !entry.name)) {
+    updatePaNameStatus("名前が空のPAがあります", "#b42318");
+    return;
+  }
+
+  const uniqueNames = new Set(nextNames.map((entry) => entry.name));
+  if (uniqueNames.size !== nextNames.length) {
+    updatePaNameStatus("同じ名前が複数あります", "#b42318");
+    return;
+  }
+
+  const previousNamesById = new Map(paNames.map((entry) => [entry.id, entry.name]));
+  const renamedNames = new Map();
+  nextNames.forEach((entry) => {
+    const previousName = previousNamesById.get(entry.id);
+    if (previousName && previousName !== entry.name) {
+      renamedNames.set(previousName, entry.name);
+    }
+  });
+
+  const originalLabel = paNameSaveButton.textContent;
+  paNameSaveButton.disabled = true;
+  paNameSaveButton.textContent = "保存中...";
+  updatePaNameStatus(
+    remoteSyncClient ? "Databaseに保存しています..." : "保存しています..."
+  );
+
   try {
-    if (action === "remove") {
-      paNames = paNames.filter((entry) => entry.id !== id);
-      persistPaNames();
-      await refreshPaNames();
-      populateNameSelects();
-      renderPaNameList();
-      updatePaNameStatus("削除しました");
-      renderCalendar();
-      renderAdminTable();
-      return;
+    if (renamedNames.size) {
+      applyPaNameRenames(renamedNames);
+    }
+    paNames = nextNames;
+    writeStorageArray(LOCAL_STORAGE_KEYS.names, paNames);
+    writeStorageArray(LOCAL_STORAGE_KEYS.submissions, submissionEntries);
+    storageSetItem(
+      LOCAL_STORAGE_KEYS.confirmedShifts,
+      JSON.stringify(confirmedShiftMap)
+    );
+    syncStorageCounter("names", paNames);
+
+    if (remoteSyncClient) {
+      remoteHasPendingChanges = true;
+      await flushRemotePush();
     }
 
-    if (action === "save") {
-      const updated = input.value.trim();
-      if (!updated) {
-        updatePaNameStatus("名前を入力してください", "#b42318");
-        return;
-      }
-      const isDuplicate = paNames.some(
-        (entry) => entry.id !== id && entry.name === updated
-      );
-      if (isDuplicate) {
-        updatePaNameStatus("同じ名前が既にあります", "#b42318");
-        return;
-      }
-      target.name = updated;
-      persistPaNames();
-      await refreshPaNames();
-      populateNameSelects();
-      renderPaNameList();
-      updatePaNameStatus("更新しました");
-      renderCalendar();
-      renderAdminTable();
-    }
+    resetPaNameDrafts();
+    populateNameSelects();
+    renderPaNameList();
+    renderCalendar();
+    renderAdminTable();
+    updatePaNameStatus(
+      remoteSyncClient
+        ? "Databaseに変更を保存しました。"
+        : "このブラウザに変更を保存しました。"
+    );
   } catch (error) {
-    console.error("Failed to update PA name", error);
-    updatePaNameStatus(error.message || STORAGE_ERROR_MESSAGE, "#b42318");
+    console.error("Failed to save PA names", error);
+    setPaNameChangesPending(true);
+    updatePaNameStatus(
+      "Databaseへの保存に失敗しました。接続を確認して、もう一度保存してください。",
+      "#b42318"
+    );
+  } finally {
+    paNameSaveButton.textContent = originalLabel;
+    paNameSaveButton.disabled = !paNameChangesPending;
   }
+}
+
+function applyPaNameRenames(renamedNames) {
+  const affectedScopes = new Set();
+  submissionEntries = submissionEntries.map((entry) => {
+    const renamed = renamedNames.get(entry.name);
+    if (!renamed) return entry;
+    affectedScopes.add(`${entry.name}|${entry.monthKey}`);
+    affectedScopes.add(`${renamed}|${entry.monthKey}`);
+    return { ...entry, name: renamed };
+  });
+  affectedScopes.forEach((scope) => {
+    const separatorIndex = scope.lastIndexOf("|");
+    queueSubmissionSyncScope(
+      scope.slice(0, separatorIndex),
+      scope.slice(separatorIndex + 1)
+    );
+  });
+
+  confirmedShiftMap = Object.entries(confirmedShiftMap).reduce(
+    (months, [monthKey, entries]) => {
+      months[monthKey] = Object.keys(entries).reduce((renamedEntries, entryKey) => {
+        const parts = entryKey.split("|");
+        const previousName = parts[2];
+        const renamed = renamedNames.get(previousName);
+        if (renamed) {
+          parts[2] = renamed;
+          if (parts[3] === previousName) {
+            parts[3] = renamed;
+          } else if (parts[3]?.startsWith(`${previousName}(`)) {
+            parts[3] = `${renamed}${parts[3].slice(previousName.length)}`;
+          }
+        }
+        renamedEntries[parts.join("|")] = true;
+        return renamedEntries;
+      }, {});
+      return months;
+    },
+    {}
+  );
 }
 
 function updatePaNameStatus(message, color = "#0f7b6c") {
