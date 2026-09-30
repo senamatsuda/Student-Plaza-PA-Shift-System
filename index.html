@@ -1,397 +1,73 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>学生プラザ3F シフト調整システム</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#090b18" />
+    <title>NEON BLOCKS | Browser Tetris</title>
     <link rel="stylesheet" href="styles.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;600&display=swap"
-      rel="stylesheet"
-    />
   </head>
   <body>
-    <header>
-      <div class="container">
-        <h1>学生プラザ3F 留学交流グループ シフト調整</h1>
-        <p>
-          PAさんはPA入力ページより勤務可能日時を登録してください。AdminはAdminページよりシフト調整をしてください。
-        </p>
-      </div>
-    </header>
+    <div class="ambient ambient--one"></div>
+    <div class="ambient ambient--two"></div>
+    <main class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">ARCADE / 01</p>
+          <h1>NEON <span>BLOCKS</span></h1>
+        </div>
+        <div class="status-pill"><i></i><span id="statusText">READY TO PLAY</span></div>
+      </header>
 
-    <main class="container">
-      <div
-        id="syncStatus"
-        class="sync-status"
-        role="status"
-        aria-live="polite"
-      ></div>
-      <div class="tabs" role="tablist" aria-label="ビュー切替">
-        <div class="tab-controls">
-          <button
-            class="tab-button is-active"
-            data-tab-target="paTab"
-            role="tab"
-            aria-selected="true"
-          >
-            PA入力
-          </button>
-          <button
-            class="tab-button"
-            data-tab-target="adminTab"
-            role="tab"
-            aria-selected="false"
-          >
-            Admin
-          </button>
-          <button
-            class="tab-button"
-            data-tab-target="aboutTab"
-            role="tab"
-            aria-selected="false"
-          >
-            システムに関して
-          </button>
+      <section class="game-layout" aria-label="テトリスゲーム">
+        <aside class="panel stats-panel">
+          <p class="panel-label">SCOREBOARD</p>
+          <div class="stat"><span>SCORE</span><strong id="score">000000</strong></div>
+          <div class="stat-row">
+            <div class="stat"><span>LEVEL</span><strong id="level">01</strong></div>
+            <div class="stat"><span>LINES</span><strong id="lines">00</strong></div>
+          </div>
+          <div class="meter" aria-hidden="true"><span id="levelMeter"></span></div>
+          <p class="meter-copy">NEXT LEVEL <b id="linesToLevel">10 LINES</b></p>
+        </aside>
+
+        <div class="board-wrap">
+          <div class="board-frame">
+            <canvas id="board" width="300" height="600" aria-label="プレイフィールド"></canvas>
+            <div class="overlay" id="overlay">
+              <p class="overlay-kicker" id="overlayKicker">NEON BLOCKS</p>
+              <h2 id="overlayTitle">READY?</h2>
+              <p id="overlayMessage">ブロックを積み上げてラインを消そう</p>
+              <button id="startButton" type="button">START GAME <span>↵</span></button>
+            </div>
+          </div>
+          <div class="mobile-controls" aria-label="タッチ操作">
+            <button data-action="left" aria-label="左へ移動">←</button>
+            <button data-action="rotate" aria-label="回転">↻</button>
+            <button data-action="right" aria-label="右へ移動">→</button>
+            <button data-action="down" aria-label="下へ移動">↓</button>
+            <button data-action="drop" aria-label="ハードドロップ">⇊</button>
+          </div>
         </div>
 
-        <section
-          class="panel tab-panel is-active"
-          id="paTab"
-          role="tabpanel"
-          aria-labelledby="paTabHeading"
-        >
-          <div class="panel__header">
-            <div>
-              <h2 id="paTabHeading">PAシフト入力</h2>
-              <p>
-                名前を選び、勤務可能日を入力してください。勤務不可、1日、午前、午後、その他（任意の時間帯）に対応しています。
-                提出内容に修正が必要な場合は、再度入力し、提出してください。上書き保存されます。
-              </p>
-            </div>
-            <label class="month-picker">
-              <span>対象月</span>
-              <input type="month" id="monthPicker" />
-            </label>
+        <aside class="panel side-panel">
+          <div>
+            <p class="panel-label">UP NEXT</p>
+            <div class="next-box"><canvas id="next" width="144" height="112" aria-label="次のピース"></canvas></div>
           </div>
-
-          <form id="shiftForm">
-            <label class="name-select">
-              <span>名前</span>
-              <select id="studentName" required></select>
-            </label>
-
-            <div id="calendar"></div>
-
-            <div class="form-actions">
-              <button type="submit" class="primary">シフトを提出</button>
-              <span id="formStatus" role="status" aria-live="polite"></span>
-            </div>
-          </form>
-        </section>
-
-        <section
-          class="panel tab-panel"
-          id="adminTab"
-          role="tabpanel"
-          aria-labelledby="adminTabHeading"
-          aria-hidden="true"
-        >
-          <div class="panel__header">
-            <div>
-              <h2 id="adminTabHeading">Adminシフト作成</h2>
-              <p>
-                提出済みデータの確認、特別日の管理、PAメンバーの編集をタブごとに行えます。
-              </p>
-            </div>
+          <div class="controls">
+            <p class="panel-label">CONTROLS</p>
+            <div><span><kbd>←</kbd><kbd>→</kbd></span><em>MOVE</em></div>
+            <div><span><kbd>↑</kbd><kbd>X</kbd></span><em>ROTATE</em></div>
+            <div><span><kbd>↓</kbd></span><em>SOFT DROP</em></div>
+            <div><span><kbd>SPACE</kbd></span><em>HARD DROP</em></div>
+            <div><span><kbd>P</kbd></span><em>PAUSE</em></div>
           </div>
-
-          <div class="admin-subtabs" role="tablist" aria-label="Admin操作">
-            <div class="admin-subtab-controls">
-              <button
-                id="adminSubtabSpecial"
-                class="admin-subtab-button is-active"
-                data-subtab-target="specialTabPanel"
-                role="tab"
-                aria-controls="specialTabPanel"
-                aria-selected="true"
-              >
-                特別日追加
-              </button>
-              <button
-                id="adminSubtabWorkday"
-                class="admin-subtab-button"
-                data-subtab-target="workdayTabPanel"
-                role="tab"
-                aria-controls="workdayTabPanel"
-                aria-selected="false"
-              >
-                出勤日指定
-              </button>
-              <button
-                id="adminSubtabPaEdit"
-                class="admin-subtab-button"
-                data-subtab-target="paManageTabPanel"
-                role="tab"
-                aria-controls="paManageTabPanel"
-                aria-selected="false"
-              >
-                PA編集
-              </button>
-              <button
-                id="adminSubtabShift"
-                class="admin-subtab-button"
-                data-subtab-target="shiftTabPanel"
-                role="tab"
-                aria-controls="shiftTabPanel"
-                aria-selected="false"
-              >
-                シフト調整
-              </button>
-            </div>
-
-            <section
-              class="admin-subtab-panel is-active"
-              id="specialTabPanel"
-              role="tabpanel"
-              aria-labelledby="adminSubtabSpecial"
-            >
-              <div class="special-day-manager">
-                <div>
-                  <h3>特別日を登録</h3>
-                  <p>
-                    授業振替日や在留期間更新など、PA入力画面でハイライトしたい日付を追加できます。
-                  </p>
-                </div>
-                <form id="specialDayForm" class="special-day-form">
-                  <label>
-                    <span>日付</span>
-                    <input type="date" id="specialDayDate" required />
-                  </label>
-                  <label>
-                    <span>メモ</span>
-                    <input
-                      type="text"
-                      id="specialDayNote"
-                      placeholder="授業振替日 など"
-                      maxlength="60"
-                      required
-                    />
-                  </label>
-                  <div class="special-day-actions">
-                    <button type="submit" class="primary">登録 / 更新</button>
-                    <span id="specialDayStatus" role="status" aria-live="polite"></span>
-                  </div>
-                </form>
-                <ul
-                  id="specialDayList"
-                  class="special-day-list"
-                  aria-live="polite"
-                ></ul>
-              </div>
-            </section>
-
-            <section
-              class="admin-subtab-panel"
-              id="workdayTabPanel"
-              role="tabpanel"
-              aria-labelledby="adminSubtabWorkday"
-              aria-hidden="true"
-            >
-              <div class="workday-availability">
-                <div class="workday-availability__header">
-                  <div>
-                    <h3>出勤日指定</h3>
-                    <p>
-                      対象月の平日について、出勤あり・なしを切り替えできます。デフォルトは翌月です。祝日は自動で勤務なしになります。
-                    </p>
-                  </div>
-                  <div class="workday-availability__meta">
-                    <label class="workday-availability__picker">
-                      <span>対象月</span>
-                      <select id="workdayAvailabilityMonthSelect"></select>
-                    </label>
-                    <span
-                      id="workdayAvailabilityMonth"
-                      class="workday-availability__month"
-                    ></span>
-                    <span
-                      id="workdayAvailabilityStatus"
-                      role="status"
-                      aria-live="polite"
-                    ></span>
-                  </div>
-                </div>
-                <ul
-                  id="workdayAvailabilityList"
-                  class="workday-availability__list"
-                  aria-live="polite"
-                ></ul>
-              </div>
-            </section>
-
-            <section
-              class="admin-subtab-panel"
-              id="paManageTabPanel"
-              role="tabpanel"
-              aria-labelledby="adminSubtabPaEdit"
-              aria-hidden="true"
-            >
-              <div class="pa-manager">
-                <div>
-                  <h3>PAの名前を管理</h3>
-                  <p>
-                    名前の追加・編集、利用状態の切り替え、削除ができます。変更は「変更を保存」を押すまでDatabaseに反映されません。
-                  </p>
-                </div>
-                <form id="paNameForm" class="pa-name-form">
-                  <label>
-                    <span>新しい名前</span>
-                    <input type="text" id="paNameInput" maxlength="20" />
-                  </label>
-                  <button type="submit" class="secondary">一覧に追加</button>
-                </form>
-                <ul id="paNameList" class="pa-name-list" aria-live="polite"></ul>
-                <div class="pa-name-save-actions">
-                  <button id="paNameSaveButton" type="button" class="primary" disabled>
-                    変更を保存
-                  </button>
-                  <span id="paNameStatus" role="status" aria-live="polite"></span>
-                </div>
-              </div>
-            </section>
-
-            <section
-              class="admin-subtab-panel"
-              id="shiftTabPanel"
-              role="tabpanel"
-              aria-labelledby="adminSubtabShift"
-              aria-hidden="true"
-            >
-              <div class="panel__subheader">
-                <div>
-                  <h3>シフト調整</h3>
-                  <p>提出済みデータをもとにシフト表を生成します。</p>
-                </div>
-                <div class="panel__actions">
-                  <button id="autoArrangeShifts" class="secondary" type="button">
-                    自動でシフトを組む
-                  </button>
-                  <button id="refreshAdmin" class="secondary" type="button">
-                    シフト表を更新
-                  </button>
-                  <button id="exportConfirmedShifts" class="primary" type="button">
-                    確定シフトを出力
-                  </button>
-                </div>
-              </div>
-              <div class="admin-tools">
-                <label>
-                  <span>表示する名前（複数選択可）</span>
-                  <select id="adminNameFilter" multiple></select>
-                </label>
-                <label>
-                  <span>対象月</span>
-                  <input type="month" id="adminMonth" />
-                </label>
-              </div>
-              <div id="adminTableWrapper" class="table-wrapper" aria-live="polite"></div>
-              <div class="unsubmitted-summary">
-                <div>
-                  <h4>シフト未提出者</h4>
-                  <p class="unsubmitted-summary__description">
-                    対象月のシフトがまだ提出されていないPAメンバーです。
-                  </p>
-                </div>
-                <div
-                  id="unsubmittedList"
-                  class="unsubmitted-list-wrapper"
-                  aria-live="polite"
-                ></div>
-              </div>
-              <div class="confirmed-summary">
-                <div>
-                  <h4>確定シフト集計</h4>
-                  <p class="confirmed-summary__description">
-                    午前・午後の確定回数を名前ごとに表示します。
-                  </p>
-                </div>
-                <div
-                  id="confirmedSummaryWrapper"
-                  class="table-wrapper"
-                  aria-live="polite"
-                ></div>
-              </div>
-            </section>
-          </div>
-        </section>
-
-        <section
-          class="panel tab-panel"
-          id="aboutTab"
-          role="tabpanel"
-          aria-labelledby="aboutTabHeading"
-          aria-hidden="true"
-        >
-          <div class="panel__header">
-            <div>
-              <h2 id="aboutTabHeading">システムに関して</h2>
-              <p>このシフト調整システムに関する概要が記載されているページです。</p>
-            </div>
-          </div>
-
-          <div class="panel__content">
-            <p>本システムは2022年度入学 総合科学部のPA松田がCodeXを利用し作成したものです。<br>
-              サーバーはRenderにて構築しており、ソースは以下のGithubにてPublicで公開しています。<br>
-            データベースはSupabaseにて構築し、Renderに接続しています。<br>
-            休祝日は自動的に設定されますが、それ以外は手動で登録してください。</p>
-            <p>
-              ソースコード: <a href="https://github.com/senamatsuda/Student-Plaza-PA-Shift-System">https://github.com/senamatsuda/Student-Plaza-PA-Shift-System</a>
-            </p>
-            <p>
-              Githubを編集する際は、レポジトリをクローンして、必ずブランチを切ってください。<br>
-              編集依頼がある場合は、必ずPRを作成し、期限をメッセージに記入して行うこと。または、レポジトリ自体の編集権限の付与を依頼してください。<br>
-              このシステムに関するその他詳細はGithub内のREADME.mdに記載されているので、確認してください。
-            </p>
-          </div>
-        </section>
-      </div>
+          <button class="pause-button" id="pauseButton" type="button" disabled><span>Ⅱ</span> PAUSE</button>
+        </aside>
+      </section>
+      <footer><span>10 × 20 GRID</span><b>NO INSTALL. JUST PLAY.</b><span>v1.0</span></footer>
     </main>
-
-    <template id="shiftRowTemplate">
-      <div class="shift-row">
-        <div class="shift-row__date">
-          <span class="shift-row__day"></span>
-          <small class="shift-row__note"></small>
-        </div>
-        <div class="shift-row__select">
-          <label>
-            <span>勤務帯</span>
-            <select class="shift-select">
-              <option value="">---</option>
-              <option value="morning">午前 (10:00-13:00)</option>
-              <option value="afternoon">午後 (13:00-17:00)</option>
-              <option value="fullday">1日 (10:00-17:00)</option>
-              <option value="unavailable">勤務不可</option>
-              <option value="other">その他</option>
-            </select>
-          </label>
-          <label class="custom-time">
-            <span>時間帯</span>
-            <div>
-              <select class="custom-start" disabled></select>
-              <span>〜</span>
-              <select class="custom-end" disabled></select>
-            </div>
-          </label>
-        </div>
-      </div>
-    </template>
-
-    <script src="config.js?v=20260827-line-submit-1"></script>
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script src="script.js?v=20260827-line-submit-1" type="module"></script>
+    <script type="module" src="script.js"></script>
   </body>
 </html>
