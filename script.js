@@ -1,3 +1,8 @@
+import {
+  calculateAssignedHoursForSlotItem,
+  selectCandidateForSlot,
+} from "./shift-allocation.mjs";
+
 const SHIFT_TEMPLATES = {
   morning: { label: "午前", start: "10:00", end: "13:00" },
   afternoon: { label: "午後", start: "13:00", end: "17:00" },
@@ -1236,10 +1241,7 @@ async function handleAutoArrange() {
 
   try {
     await refreshSubmissions();
-    const { slotEntries, availabilityCount } = buildSlotEntriesForMonth(
-      monthKey,
-      weekdays
-    );
+    const { slotEntries } = buildSlotEntriesForMonth(monthKey, weekdays);
 
     const hasCandidates = slotEntries.some((slot) => slot.items.length);
     if (!hasCandidates) {
@@ -1249,16 +1251,19 @@ async function handleAutoArrange() {
 
     confirmedShiftMap[monthKey] = {};
     const slotConfirmed = new Set();
-    const confirmedCounts = {};
     const confirmedHours = {};
-    const prevMonthConfirmedCounts = buildPreviousMonthConfirmedCounts(monthKey);
+    const previousMonthHours = buildPreviousMonthConfirmedHours(monthKey);
+    const assignedNamesByDate = {};
     const confirmItem = (item) => {
       const entryKey = buildConfirmedEntryKey(item);
       confirmedShiftMap[monthKey][entryKey] = true;
       slotConfirmed.add(`${item.date}|${item.slot}`);
-      confirmedCounts[item.name] = (confirmedCounts[item.name] || 0) + 1;
       const assignedHours = calculateAssignedHoursForSlotItem(item);
       confirmedHours[item.name] = (confirmedHours[item.name] || 0) + assignedHours;
+      if (!assignedNamesByDate[item.date]) {
+        assignedNamesByDate[item.date] = {};
+      }
+      assignedNamesByDate[item.date][item.slot] = item.name;
     };
 
     slotEntries.forEach((slot) => {
@@ -1266,40 +1271,24 @@ async function handleAutoArrange() {
       if (slotConfirmed.has(slotKey)) {
         return;
       }
-      const candidates = slot.items;
-      if (!candidates.length) {
+      if (!slot.items.length) {
         return;
       }
 
-      candidates.sort((a, b) => {
-        const projectedHoursA =
-          (confirmedHours[a.name] || 0) + calculateAssignedHoursForSlotItem(a);
-        const projectedHoursB =
-          (confirmedHours[b.name] || 0) + calculateAssignedHoursForSlotItem(b);
-        if (projectedHoursA !== projectedHoursB) {
-          return projectedHoursA - projectedHoursB;
-        }
-
-        const projectedCountA = (confirmedCounts[a.name] || 0) + 1;
-        const projectedCountB = (confirmedCounts[b.name] || 0) + 1;
-        if (projectedCountA !== projectedCountB) {
-          return projectedCountA - projectedCountB;
-        }
-
-        const prevMonthCountA = prevMonthConfirmedCounts[a.name] || 0;
-        const prevMonthCountB = prevMonthConfirmedCounts[b.name] || 0;
-        if (prevMonthCountA !== prevMonthCountB) {
-          return prevMonthCountA - prevMonthCountB;
-        }
-
-        const availabilityA = availabilityCount[a.name] || 0;
-        const availabilityB = availabilityCount[b.name] || 0;
-        if (availabilityA !== availabilityB) return availabilityA - availabilityB;
-
-        return a.name.localeCompare(b.name, "ja");
+      const selectedItem = selectCandidateForSlot(slot.items, {
+        confirmedHours,
+        previousMonthHours,
+        previousSlotName:
+          slot.slotKey === "afternoon"
+            ? assignedNamesByDate[slot.dateKey]?.morning || ""
+            : "",
+        previousDayNames: Object.values(
+          assignedNamesByDate[getPreviousDateKey(slot.dateKey)] || {}
+        ),
       });
-
-      confirmItem(candidates[0]);
+      if (selectedItem) {
+        confirmItem(selectedItem);
+      }
     });
 
     persistConfirmedShiftMap();
@@ -1316,32 +1305,7 @@ async function handleAutoArrange() {
   }
 }
 
-function calculateAssignedHoursForSlotItem(item) {
-  const slotRange = item.slot === "morning" ? MORNING_RANGE : AFTERNOON_RANGE;
-  if (item.shiftType === "other") {
-    const overlap = calculateTimeOverlapRange(
-      item.start,
-      item.end,
-      slotRange.start,
-      slotRange.end
-    );
-    if (!overlap) return 0;
-    const overlapStart = timeToMinutes(overlap.start);
-    const overlapEnd = timeToMinutes(overlap.end);
-    if (overlapStart == null || overlapEnd == null || overlapStart >= overlapEnd) {
-      return 0;
-    }
-    return (overlapEnd - overlapStart) / 60;
-  }
-  const slotStart = timeToMinutes(slotRange.start);
-  const slotEnd = timeToMinutes(slotRange.end);
-  if (slotStart == null || slotEnd == null || slotStart >= slotEnd) {
-    return 0;
-  }
-  return (slotEnd - slotStart) / 60;
-}
-
-function buildPreviousMonthConfirmedCounts(monthKey) {
+function buildPreviousMonthConfirmedHours(monthKey) {
   const previousMonthKey = getPreviousMonthKey(monthKey);
   if (!previousMonthKey) return {};
   const entries = confirmedShiftMap[previousMonthKey];
@@ -1352,7 +1316,8 @@ function buildPreviousMonthConfirmedCounts(monthKey) {
     if (!parsed || !parsed.name) {
       return acc;
     }
-    acc[parsed.name] = (acc[parsed.name] || 0) + 1;
+    const assignedHours = calculateAssignedHoursForSlotItem(parsed);
+    acc[parsed.name] = (acc[parsed.name] || 0) + assignedHours;
     return acc;
   }, {});
 }
@@ -1363,6 +1328,14 @@ function getPreviousMonthKey(monthKey) {
   if (!yearValue || !monthValue) return "";
   const date = new Date(yearValue, monthValue - 2, 1);
   return formatMonthKey(date.getFullYear(), date.getMonth());
+}
+
+function getPreviousDateKey(dateKey) {
+  if (!dateKey) return "";
+  const [yearValue, monthValue, dayValue] = dateKey.split("-").map(Number);
+  if (!yearValue || !monthValue || !dayValue) return "";
+  const date = new Date(yearValue, monthValue - 1, dayValue - 1);
+  return formatDateKey(date);
 }
 
 async function handleAdminRefresh() {
@@ -1419,6 +1392,10 @@ function buildSlotEntriesForMonth(monthKey, weekdays) {
 
   weekdays.forEach((date) => {
     const dateKey = formatDateKey(date);
+    const holidayName = getHolidayName(dateKey);
+    if (!resolveWorkdayAvailability(dateKey, holidayName)) {
+      return;
+    }
     const dayEntries = grouped[dateKey] ?? createEmptyEntryGroup();
     slotEntries.push({
       dateKey,
@@ -1432,14 +1409,7 @@ function buildSlotEntriesForMonth(monthKey, weekdays) {
     });
   });
 
-  const availabilityCount = {};
-  slotEntries.forEach((slot) => {
-    slot.items.forEach((item) => {
-      availabilityCount[item.name] = (availabilityCount[item.name] || 0) + 1;
-    });
-  });
-
-  return { slotEntries, availabilityCount };
+  return { slotEntries };
 }
 
 function buildSlotItems(entries, range, slotKey) {
